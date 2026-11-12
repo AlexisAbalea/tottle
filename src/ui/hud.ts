@@ -13,6 +13,7 @@ const SVG = {
   fallen: `<svg viewBox="0 0 24 24"><circle cx="12" cy="6" r="3.2" fill="#ff5a7e"/><path stroke="#ff5a7e" stroke-width="2.6" stroke-linecap="round" d="M12 10v6M8 12l-3-3M16 12l3-3M12 16l-3 4M12 16l3 4"/><path stroke="#2b2340" stroke-width="2" stroke-linecap="round" d="M3 22h18"/></svg>`,
   trophy: `<svg viewBox="0 0 24 24"><path fill="#ffc93c" stroke="#e0a100" stroke-width="1.2" d="M7 3h10v5a5 5 0 0 1-10 0zM10 14h4v3h3v3H7v-3h3z"/><path fill="none" stroke="#e0a100" stroke-width="1.6" d="M7 5H4v2a3 3 0 0 0 3 3M17 5h3v2a3 3 0 0 1-3 3"/></svg>`,
   tottler: `<svg viewBox="0 0 24 24"><circle cx="12" cy="6" r="3.4" fill="#45d39b"/><path stroke="#45d39b" stroke-width="3" stroke-linecap="round" d="M12 10v6M8 11.5l-2 3M16 11.5l2 3M12 16l-2.5 5M12 16l2.5 5"/></svg>`,
+  lava: `<svg viewBox="0 0 24 24"><path fill="#ff5a1f" d="M12 2c1 4 5 5.5 5 10a5 5 0 0 1-10 0c0-2.5 1.5-3.8 2.5-5 .3 1.6 1 2.5 2 3 0-3-.5-5.5.5-8z"/><path fill="#ffd23a" d="M12 12c.6 1.5 2 2 2 3.6a2 2 0 0 1-4 0c0-1 .7-1.6 1.2-2 .1.6.4 1 .8 1.2 0-1-.2-1.9 0-2.8z"/></svg>`,
   hand: `<svg viewBox="0 0 64 64"><path fill="#fff" stroke="#2b2340" stroke-width="3" stroke-linejoin="round" d="M22 30V9a5 5 0 0 1 10 0v17l2-.5V22a5 5 0 0 1 9.5-1l.5 4.5a5 5 0 0 1 9 2V44c0 9-6 16-15 16h-4c-6 0-9.5-3-12.5-8L13 41a5 5 0 0 1 8-6z"/></svg>`,
 };
 
@@ -27,6 +28,7 @@ export interface HudCallbacks {
 
 export interface ResultInfo {
   won: boolean;
+  reason?: 'falls' | 'lava';
   stars: number;
   falls: number;
   perfect: boolean;
@@ -52,7 +54,10 @@ export class Hud {
     root.innerHTML = `
       <div class="topbar hidden" data-testid="topbar">
         <div class="pill" data-testid="level-pill"></div>
-        <div class="pill stars" data-testid="stars"></div>
+        <div class="mid-pills">
+          <div class="pill stars" data-testid="stars"></div>
+          <div class="pill falls-pill" data-testid="falls-pill"></div>
+        </div>
         <div class="right-btns">
           <button class="icon-btn" data-act="retry" aria-label="Restart">${SVG.retry}</button>
           <button class="icon-btn" data-act="sound" aria-label="Sound"></button>
@@ -132,6 +137,14 @@ export class Hud {
       html += i < n ? icon : icon.replace('class="star"', 'class="star off"');
     }
     this.starsEl.innerHTML = html;
+    this.starsEl.style.display = max > 0 ? 'flex' : 'none';
+  }
+
+  /** Fallen counter, e.g. "3/10". */
+  setFalls(n: number, max: number, visible: boolean) {
+    const el = this.root.querySelector('[data-testid=falls-pill]') as HTMLElement;
+    el.style.display = visible ? 'flex' : 'none';
+    el.innerHTML = `${SVG.fallen}<span>${n}/${max}</span>`;
   }
 
   setQueueCount(n: number, x: number, y: number) {
@@ -168,8 +181,9 @@ export class Hud {
         }
       });
     } else {
+      const icon = r.reason === 'lava' ? SVG.lava : SVG.fallen;
       card.innerHTML = `
-        <div class="stat" style="font-size:40px">${SVG.fallen}<span data-testid="falls">${r.falls}</span></div>
+        <div class="stat big-icon" data-testid="fail-${r.reason ?? 'falls'}" style="font-size:40px">${icon}<span data-testid="falls">${r.reason === 'lava' ? '' : r.falls}</span></div>
         <div class="card-btns">
           <button class="play-btn" data-act="retry" data-testid="retry" aria-label="Retry" style="background:var(--orange)!important;box-shadow:0 7px 0 #d68a10">${SVG.retry}</button>
         </div>`;

@@ -34,8 +34,9 @@ export function depthOf(node: StructureNode): number {
   return 1 + Math.max(depthOf(node.left.child), depthOf(node.right.child));
 }
 
-export function totalCapacity(root: StructureNode): number {
-  return listPlatforms(root).reduce((s, p) => s + p.capacity, 0);
+/** Sum of all platform widths (width units). */
+export function totalSize(root: StructureNode): number {
+  return listPlatforms(root).reduce((s, p) => s + p.size, 0);
 }
 
 export function platformIdsUnder(node: StructureNode): string[] {
@@ -66,7 +67,7 @@ export function validateStructure(root: BeamNode) {
     if (ids.has(n.id)) throw new Error(`Duplicate node id ${n.id}`);
     ids.add(n.id);
     if (n.kind === 'platform') {
-      if (!Number.isInteger(n.capacity) || n.capacity < 1) throw new Error(`Bad capacity ${n.id}`);
+      if (!Number.isInteger(n.size) || n.size < 2) throw new Error(`Bad size ${n.id}`);
     } else {
       if (n.tolerance < 0) throw new Error(`Bad tolerance ${n.id}`);
       if (n.left.length <= 0 || n.right.length <= 0) throw new Error(`Bad arm ${n.id}`);

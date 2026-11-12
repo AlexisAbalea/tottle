@@ -416,3 +416,31 @@ body {
     transform: translate(-50%, -20px);
   }
 }
+
+.mid-pills {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 60px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.pill {
+  white-space: nowrap;
+}
+.falls-pill {
+  padding: 8px 12px;
+  font-size: 16px;
+  gap: 4px;
+}
+.falls-pill svg {
+  width: 22px;
+  height: 22px;
+}
+.big-icon svg {
+  width: 64px;
+  height: 64px;
+}

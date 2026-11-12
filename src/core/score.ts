@@ -1,17 +1,17 @@
-/** More falls than this and the level is lost. */
+/** At this many falls the level is lost. */
 export const MAX_FALLS = 10;
 
 /**
- * Stars for a finished level:
+ * Stars for a finished level (every fall costs):
  *   0 falls      → 3 stars
- *   1–2 falls    → 2 stars
- *   3–10 falls   → 1 star
- *   11+ falls    → failed (0)
+ *   1 fall       → 2 stars
+ *   2–9 falls    → 1 star (finishing always keeps one)
+ *   10+ falls    → lost (0)
  */
 export function starsFor(falls: number): number {
   if (falls <= 0) return 3;
-  if (falls <= 2) return 2;
-  if (falls <= MAX_FALLS) return 1;
+  if (falls === 1) return 2;
+  if (falls < MAX_FALLS) return 1;
   return 0;
 }
 

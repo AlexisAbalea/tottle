@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import type { Weight } from '../core/types';
 import { PALETTE, WEIGHT_COLORS, numberBadge, toon } from './materials';
 
-export const WEIGHT_SCALE: Record<Weight, number> = { 1: 0.8, 2: 1.0, 3: 1.22 };
+/** Sizes chosen so that a Tottler looks as wide as the room it takes (weight + 1 units). */
+export const WEIGHT_SCALE: Record<Weight, number> = { 1: 0.75, 2: 1.05, 3: 1.4 };
 /** Head-top height of a Tottler at scale 1. */
 export const TOTTLER_HEIGHT = 1.22;
 

@@ -1,8 +1,18 @@
 import * as THREE from 'three';
-import type { LevelDef, Tottler } from './core/types';
-import { createGame, canPlace, place, type GameEvent, type GameState } from './core/game';
-import { starsRemaining } from './core/score';
+import type { LevelDef, Loads, Weight } from './core/types';
+import {
+  cloneLoads,
+  createGame,
+  canPlace,
+  freeWidth,
+  place,
+  type GameEvent,
+  type GameState,
+} from './core/game';
+import { MAX_FALLS, starsRemaining } from './core/score';
 import { hint } from './core/solver';
+import { tottlerWidth } from './core/balance';
+import { WIDTH_UNIT } from './core/geometry';
 import {
   loadProgress,
   recordEndless,
@@ -13,26 +23,27 @@ import {
 import { LEVELS } from './levels/levels';
 import { endlessLevel } from './levels/endless';
 import { Stage } from './render/stage';
-import { MobileView } from './render/mobile';
-import { TottlerView, TOTTLER_HEIGHT } from './render/tottler';
+import { CLOUD_TOP, MobileView, packPositions } from './render/mobile';
+import { TottlerView } from './render/tottler';
 import { PALETTE, toon } from './render/materials';
-import { FallPhysics } from './fx/physics';
+import { FallPhysics, type Rock } from './fx/physics';
 import { Particles } from './fx/particles';
 import { Sound, vibrate } from './fx/audio';
 import { Hud } from './ui/hud';
 
 type Phase = 'ready' | 'playing' | 'busy' | 'result';
 type Mode = 'level' | 'endless';
+type Ev<T extends GameEvent['type']> = Extract<GameEvent, { type: T }>;
 
 const SKIES = [
-  ['#8fd0ff', '#c9e8ff', '#ffe9f3'],
-  ['#ffb7d5', '#ffd9c2', '#fff4d6'],
-  ['#9ee6d0', '#c8f3e6', '#fff6dc'],
-  ['#b9a8ff', '#dcd2ff', '#ffe3f0'],
-  ['#ffd27a', '#ffe7b8', '#fff7ec'],
+  ['#8fd0ff', '#c9e8ff', '#ffd9b8'],
+  ['#ffb7d5', '#ffd9c2', '#ffcf9e'],
+  ['#9ee6d0', '#c8f3e6', '#ffdcae'],
+  ['#b9a8ff', '#dcd2ff', '#ffd0b5'],
+  ['#ffd27a', '#ffe7b8', '#ffc99a'],
 ];
-const ENDLESS_LIVES = 3;
-const QUEUE_SPACING = 1.05;
+const QUEUE_SPACING = 1.1;
+const LAVA_COLORS = [0xffd23a, 0xff8a1f, 0xff5a1f];
 
 /** Simple game-time timers so animations can be awaited. */
 class Timers {
@@ -54,7 +65,7 @@ interface Jump {
   view: TottlerView;
   from: THREE.Vector3;
   platformId: string;
-  slot: number;
+  localX: number;
   t: number;
   dur: number;
   height: number;
@@ -75,18 +86,19 @@ export class App {
   private levelIndex = 0;
   private level!: LevelDef;
   private game!: GameState;
+  /** What is currently shown on the platforms (lags behind `game` during animations). */
+  private shown: Loads = {};
   private phase: Phase = 'ready';
   private mobile: MobileView | null = null;
   private world = new THREE.Group();
   private views = new Map<number, TottlerView>();
   /** Which platform each placed Tottler view stands on. */
   private onPlatform = new Map<number, string>();
-  private queueViews: TottlerView[] = [];
   private pad: THREE.Mesh;
   private jumps: Jump[] = [];
   private queueOrigin = new THREE.Vector3();
   private pressed: string | null = null;
-  private endless = { seed: 1, round: 0, lives: ENDLESS_LIVES, score: 0 };
+  private endless = { seed: 1, round: 0, falls: 0, score: 0 };
   /** Bumped on every level load, so stale async sequences stop. */
   private generation = 0;
   timeScale = 1;
@@ -96,7 +108,7 @@ export class App {
     this.progress = loadProgress(safeStorage());
     this.sound.muted = this.progress.muted;
     this.stage.scene.add(this.world, this.particles.mesh);
-    const padGeo = new THREE.CylinderGeometry(0.62, 0.7, 0.16, 28);
+    const padGeo = new THREE.CylinderGeometry(0.62, 0.7, 0.12, 28);
     this.pad = new THREE.Mesh(padGeo, toon(PALETTE.pad));
     this.pad.receiveShadow = true;
     this.stage.scene.add(this.pad);
@@ -140,7 +152,7 @@ export class App {
     canvas.addEventListener('pointerup', (e) => this.onPointerUp(e));
     window.addEventListener('resize', () => this.reframe());
 
-    void this.physics.init(-8);
+    void this.physics.init().then(() => this.physics.setScene(this.stage.lavaY, this.rock()));
     this.showHome();
     this.loop();
   }
@@ -151,7 +163,7 @@ export class App {
     const done = this.progress.level >= LEVELS.length;
     if (done) {
       this.mode = 'endless';
-      this.endless = { seed: newSeed(), round: 0, lives: ENDLESS_LIVES, score: 0 };
+      this.endless = { seed: newSeed(), round: 0, falls: 0, score: 0 };
       this.setup(endlessLevel(this.endless.seed, 0), 0);
       this.hud.showStart(`∞ <span style="opacity:.6">★ ${this.progress.endlessBest}</span>`, true);
     } else {
@@ -173,8 +185,8 @@ export class App {
   private beginPlaying() {
     this.phase = 'playing';
     this.hud.showPlaying(this.label());
-    this.refreshStars();
-    this.afterSettle();
+    this.refreshHud();
+    this.updateHand();
   }
 
   private label() {
@@ -191,9 +203,14 @@ export class App {
 
   private startEndless() {
     this.mode = 'endless';
-    this.endless = { seed: newSeed(), round: 0, lives: ENDLESS_LIVES, score: 0 };
+    this.endless = { seed: newSeed(), round: 0, falls: 0, score: 0 };
     this.setup(endlessLevel(this.endless.seed, 0), 0);
     this.beginPlaying();
+  }
+
+  private rock(): Rock {
+    // nothing to bounce on: everything that falls ends in the lava
+    return { x: 0, y: -999, z: 0, hw: 1, hd: 1 };
   }
 
   /** Build the scene for a level definition. */
@@ -201,32 +218,27 @@ export class App {
     this.generation++;
     this.level = level;
     this.game = createGame(level);
+    this.shown = cloneLoads(this.game.loads);
     this.jumps = [];
     this.physics.clear();
     this.hud.hideHand();
     for (const v of this.views.values()) v.dispose();
-    for (const v of this.queueViews) v.dispose();
     this.views.clear();
     this.onPlatform.clear();
-    this.queueViews = [];
     if (this.mobile) this.world.remove(this.mobile.group);
 
-    this.mobile = new MobileView(level.root, 0);
+    this.mobile = new MobileView(level.root);
+    this.mobile.lava = this.game.lava;
     this.world.add(this.mobile.group);
-    const groundY = this.mobile.bottomY - 2.3;
-    const b = this.mobile.bounds();
-    const hw = Math.max(4.2, Math.max(-b.minX, b.maxX) * 0.8);
-    this.stage.setGround(groundY, hw, 2.6);
-    this.physics.setGround(groundY, hw, 2.6);
-    this.queueOrigin.set(0, groundY, 0.9);
-    this.pad.position.set(0, groundY + 0.02, 0.9);
+    // the queue waits on top of the cloud the mobile hangs from
+    this.queueOrigin.set(-QUEUE_SPACING, CLOUD_TOP, 0.3);
+    this.stage.setLava(this.game.lava);
+    this.physics.setScene(this.game.lava, this.rock());
+    this.pad.position.set(this.queueOrigin.x, this.queueOrigin.y + 0.02, this.queueOrigin.z);
 
-    for (const t of this.game.queue) {
-      const v = new TottlerView(t.id, t.weight);
-      this.views.set(t.id, v);
-    }
+    for (const t of this.game.queue) this.views.set(t.id, new TottlerView(t.id, t.weight));
     this.layoutQueue(true);
-    this.mobile.setLoads(this.game.loads);
+    this.mobile.setLoads(this.shown);
     const sky = SKIES[skyIndex % SKIES.length];
     const app = document.getElementById('app');
     app?.style.setProperty('--sky-top', sky[0]);
@@ -238,19 +250,12 @@ export class App {
   private reframe() {
     if (!this.mobile) return;
     const b = this.mobile.bounds();
-    const qRight = this.queueOrigin.x + QUEUE_SPACING * 2 + 0.8;
-    this.stage.frame(
-      Math.min(b.minX, -qRight),
-      Math.max(b.maxX, qRight),
-      this.stage.groundY - 0.35,
-      b.maxY,
-    );
+    this.stage.frame(Math.min(b.minX, -2.8), Math.max(b.maxX, 2.8), this.game.lava - 0.9, b.maxY);
   }
 
-  /** Put waiting Tottlers in line on the ground: current on the pad, then the next two. */
+  /** Waiting Tottlers stand on the cloud: current one on the pad, then the next two. */
   private layoutQueue(instant = false) {
-    const waiting = this.game.queue;
-    waiting.forEach((t, i) => {
+    this.game.queue.forEach((t, i) => {
       const v = this.views.get(t.id)!;
       if (i > 2) {
         v.root.visible = false;
@@ -260,9 +265,9 @@ export class App {
       v.root.visible = true;
       v.showBadge(true);
       const target = new THREE.Vector3(
-        this.queueOrigin.x + i * QUEUE_SPACING + (i > 0 ? 0.25 : 0),
-        this.queueOrigin.y + (i === 0 ? 0.1 : 0),
-        this.queueOrigin.z - (i > 0 ? 0.4 : 0),
+        this.queueOrigin.x + i * QUEUE_SPACING + (i > 0 ? 0.2 : 0),
+        this.queueOrigin.y + (i === 0 ? 0.08 : 0),
+        this.queueOrigin.z - (i > 0 ? 0.3 : 0),
       );
       v.root.userData.queueTarget = target;
       if (instant) v.root.position.copy(target);
@@ -280,6 +285,7 @@ export class App {
     let bestD = Infinity;
     const tmp = new THREE.Vector3();
     for (const [id, p] of this.mobile.platforms) {
+      if (p.broken) continue;
       this.mobile.platformTop(id, tmp);
       // aim a bit above the tray, where the Tottlers stand
       const c = this.stage.toScreen(tmp.clone().add(new THREE.Vector3(0, 0.55, 0)));
@@ -315,12 +321,7 @@ export class App {
 
   /** Public for tests: place the current Tottler on a platform. */
   tapPlatform(pid: string): boolean {
-    if (this.phase !== 'playing') return false;
-    if (!canPlace(this.game, pid)) {
-      this.sound.tap();
-      vibrate(8);
-      return false;
-    }
+    if (this.phase !== 'playing' || !canPlace(this.game, pid)) return false;
     void this.doPlace(pid);
     return true;
   }
@@ -329,107 +330,139 @@ export class App {
 
   private async doPlace(pid: string) {
     const gen = this.generation;
+    const alive = () => gen === this.generation;
     this.phase = 'busy';
     this.hud.hideHand();
     const before = this.game;
     const { state, events } = place(before, pid);
     this.game = state;
-    const placed = events.find((e) => e.type === 'placed') as Extract<
-      GameEvent,
-      { type: 'placed' }
-    >;
-    const falls = events.filter((e) => e.type === 'fell') as Extract<GameEvent, { type: 'fell' }>[];
-    const end = events.find((e) => e.type === 'end') as
-      Extract<GameEvent, { type: 'end' }> | undefined;
-    const view = this.views.get(placed.tottler.id)!;
+    const tottler = before.queue[0];
+    const view = this.views.get(tottler.id)!;
+    const noRoom = events.find((e) => e.type === 'noRoom') as Ev<'noRoom'> | undefined;
+    const tips = events.filter((e) => e.type === 'tip') as Ev<'tip'>[];
+    const lava = events.find((e) => e.type === 'lava') as Ev<'lava'> | undefined;
+    const end = events.find((e) => e.type === 'end') as Ev<'end'> | undefined;
 
-    // 1. jump
-    this.sound.jump(placed.tottler.weight);
+    this.sound.jump(tottler.weight);
     vibrate(10);
-    await this.jumpTo(view, pid, placed.slot);
-    if (gen !== this.generation) return;
-    this.onPlatform.set(placed.tottler.id, pid);
 
-    // 2. land: show the loads including the newcomer (may be beyond tolerance for a moment)
-    const withNew: Record<string, Tottler[]> = {};
-    for (const k of Object.keys(before.loads)) withNew[k] = before.loads[k].slice();
-    withNew[pid].push(placed.tottler);
-    this.mobile!.setLoads(withNew);
-    this.sound.land(placed.tottler.weight);
-    view.land(0.6 + placed.tottler.weight * 0.2);
-    this.layoutQueue();
-
-    // 3. falls
-    if (falls.length) {
-      await this.timers.wait(0.3);
-      if (gen !== this.generation) return;
-      for (const f of falls) {
-        const fv = this.views.get(f.tottler.id)!;
-        fv.mood = 'whoa';
-        fv.root.userData.slide = f.side === 'right' ? 1 : -1;
-      }
+    if (noRoom) {
+      // 1a. lands on the edge, wobbles, falls off
+      const p = this.mobile!.platforms.get(pid)!;
+      const side = this.shown[pid].length % 2 === 0 ? 1 : -1;
+      const x = side * (p.width / 2 + (tottlerWidth(tottler.weight) * WIDTH_UNIT) / 2 - 0.12);
+      await this.jumpTo(view, pid, x);
+      if (!alive()) return;
+      this.onPlatform.set(tottler.id, pid);
+      this.layoutQueue();
+      view.mood = 'whoa';
       this.sound.whoa();
-      vibrate([20, 30, 20]);
       await this.timers.wait(0.45);
-      if (gen !== this.generation) return;
-      for (const f of falls) this.dropTottler(f.tottler.id, f.side === 'right' ? 1 : -1);
-      this.mobile!.setLoads(this.game.loads);
+      if (!alive()) return;
+      this.dropTottler(tottler.id, side);
       this.sound.fall();
-      vibrate(45);
-      if (this.mode === 'endless') {
-        this.endless.lives = Math.max(0, this.endless.lives - falls.length);
-      }
-      this.refreshStars();
-      await this.timers.wait(0.35);
-      if (gen !== this.generation) return;
+      vibrate(40);
+      this.afterFalls(1);
+      await this.timers.wait(0.3);
+      if (!alive()) return;
     } else {
-      if (this.mode === 'endless') this.endless.score += 1;
-      await this.timers.wait(0.12);
-      if (gen !== this.generation) return;
+      // 1b. jump to its spot (Tottlers are packed side by side, centred)
+      const next = this.shown[pid].concat({ ...tottler });
+      const xs = packPositions(next.map((t) => t.weight as Weight));
+      await this.jumpTo(view, pid, xs[xs.length - 1]);
+      if (!alive()) return;
+      this.onPlatform.set(tottler.id, pid);
+      this.shown[pid] = next;
+      this.mobile!.setLoads(this.shown);
+      this.sound.land(tottler.weight);
+      view.land(0.6 + tottler.weight * 0.2);
+      this.layoutQueue();
+      await this.timers.wait(0.15);
+      if (!alive()) return;
+
+      // 2. snowball: each beam that tips dumps its heavy side, then the mobile swings back
+      for (const tip of tips) {
+        await this.timers.wait(0.3);
+        if (!alive()) return;
+        for (const d of tip.dropped) {
+          const v = this.views.get(d.tottler.id);
+          if (v) v.mood = 'whoa';
+        }
+        this.sound.whoa();
+        vibrate([20, 30, 20]);
+        await this.timers.wait(0.4);
+        if (!alive()) return;
+        const dir = tip.side === 'right' ? 1 : -1;
+        tip.dropped.forEach((d, i) => this.dropTottler(d.tottler.id, dir, i * 0.06));
+        this.shown = cloneLoads(tip.after);
+        this.mobile!.setLoads(this.shown);
+        this.sound.fall();
+        vibrate(45);
+        this.afterFalls(tip.dropped.length);
+        await this.timers.wait(0.35);
+        if (!alive()) return;
+      }
+
+      // 3. lava: the platform breaks and falls in
+      if (lava) {
+        await this.timers.wait(0.35);
+        if (!alive()) return;
+        this.burnPlatform(lava.platformId);
+        await this.timers.wait(1.1);
+        if (!alive()) return;
+      }
+      if (!tips.length && !lava && this.mode === 'endless') this.endless.score += 1;
     }
+    this.shown = cloneLoads(this.game.loads);
+    this.mobile!.setLoads(this.shown);
 
     // 4. end?
     if (this.mode === 'endless') {
-      if (this.endless.lives <= 0) return this.endlessOver();
+      if (lava || this.endless.falls >= MAX_FALLS) return this.endlessOver();
       if (end) return this.endlessRoundDone(end.perfect);
     } else if (end) {
       return this.levelDone(end);
     }
     this.phase = 'playing';
-    this.afterSettle();
+    this.updateHand();
   }
 
-  private jumpTo(view: TottlerView, pid: string, slot: number): Promise<void> {
+  private afterFalls(n: number) {
+    if (this.mode === 'endless') this.endless.falls += n;
+    this.refreshHud();
+  }
+
+  private jumpTo(view: TottlerView, pid: string, localX: number): Promise<void> {
     return new Promise((done) => {
       const from = view.root.getWorldPosition(new THREE.Vector3());
-      const to = this.slotWorld(pid, slot);
-      const height = Math.max(1.2, to.y - from.y + 1.4);
+      const to = this.spotWorld(pid, localX);
+      const height = Math.max(0.9, to.y - from.y + 1.0);
       view.mood = 'jump';
-      this.jumps.push({ view, from, platformId: pid, slot, t: 0, dur: 0.62, height, done });
+      this.jumps.push({ view, from, platformId: pid, localX, t: 0, dur: 0.62, height, done });
     });
   }
 
-  private slotWorld(pid: string, slot: number) {
+  private spotWorld(pid: string, localX: number) {
     const p = this.mobile!.platforms.get(pid)!;
     p.surface.updateWorldMatrix(true, false);
-    return this.mobile!.slotLocal(pid, slot).applyMatrix4(p.surface.matrixWorld);
+    return new THREE.Vector3(localX, 0, 0.05).applyMatrix4(p.surface.matrixWorld);
   }
 
   private updateJumps(dt: number) {
     for (const j of this.jumps) {
       j.t += dt;
-      const k = Math.min(1, j.t / j.dur);
-      const to = this.slotWorld(j.platformId, j.slot);
-      const e = k; // linear horizontal, parabolic vertical
+      const e = Math.min(1, j.t / j.dur);
+      const to = this.spotWorld(j.platformId, j.localX);
       const p = j.from.clone().lerp(to, e);
       p.y = j.from.y + (to.y - j.from.y) * e + j.height * 4 * e * (1 - e);
       j.view.root.position.copy(p);
       j.view.root.rotation.z = Math.sin(Math.PI * e) * (to.x > j.from.x ? -0.5 : 0.5);
-      if (k >= 1) {
+      if (e >= 1) {
         const surface = this.mobile!.platforms.get(j.platformId)!.surface;
         surface.add(j.view.root);
-        j.view.root.position.copy(this.mobile!.slotLocal(j.platformId, j.slot));
+        j.view.root.position.set(j.localX, 0, 0.05);
         j.view.root.rotation.set(0, 0, 0);
+        j.view.root.userData.packX = j.localX;
         j.view.mood = 'idle';
         j.done();
       }
@@ -437,15 +470,19 @@ export class App {
     this.jumps = this.jumps.filter((j) => j.t < j.dur);
   }
 
-  private dropTottler(id: number, dir: number) {
+  /** A Tottler slides off and falls (into the lava, maybe bouncing on the rock first). */
+  private dropTottler(id: number, dir: number, delay = 0) {
     const v = this.views.get(id);
     if (!v) return;
     this.onPlatform.delete(id);
     this.stage.scene.attach(v.root);
     v.mood = 'fall';
     v.showBadge(false);
-    v.root.userData.baseScale = v.scale;
-    const vel = new THREE.Vector3(dir * (3 + Math.random()), 4.5, 1.2);
+    const vel = new THREE.Vector3(
+      dir * (2.4 + Math.random() * 1.2),
+      3.5 - delay * 10,
+      0.6 + Math.random(),
+    );
     const spin = new THREE.Vector3(
       Math.random() * 3,
       Math.random() * 2,
@@ -453,31 +490,56 @@ export class App {
     );
     this.physics.drop(
       v.root,
-      0.45 * v.scale,
+      0.4 * v.scale,
       vel,
       spin,
+      (at) => this.splash(at, 14),
       (o) => {
-        const p = o.getWorldPosition(new THREE.Vector3());
-        this.particles.puff(p.add(new THREE.Vector3(0, 0.4, 0)));
         o.removeFromParent();
         this.views.delete(id);
       },
-      () => {
-        this.sound.thud();
-        vibrate(15);
-      },
     );
-    setTimeout(() => this.sound.poof(), 1700);
   }
 
-  private refreshStars() {
-    if (this.mode === 'endless') this.hud.setStars(this.endless.lives, 'hearts', ENDLESS_LIVES);
-    else this.hud.setStars(starsRemaining(this.game.falls), 'stars');
+  private splash(at: THREE.Vector3, n: number) {
+    this.particles.puff(at, LAVA_COLORS[Math.floor(Math.random() * 3)], n);
+    this.particles.puff(at.clone().add(new THREE.Vector3(0, 0.3, 0)), 0x6b5a7a, Math.ceil(n / 2));
+    this.sound.sizzle();
+    vibrate(15);
   }
 
-  /** Called whenever the player can play again. */
-  private afterSettle() {
-    this.updateHand();
+  /** The platform touched the lava: ropes snap, it drops in with everyone on it. */
+  private burnPlatform(pid: string) {
+    const surface = this.mobile!.breakPlatform(pid);
+    if (!surface) return;
+    for (const [id, p] of [...this.onPlatform]) if (p === pid) this.onPlatform.delete(id);
+    for (const child of surface.children) {
+      const v = [...this.views.values()].find((x) => x.root === child);
+      if (v) v.mood = 'fall';
+    }
+    this.sound.snap();
+    vibrate([80, 40, 120]);
+    this.physics.drop(
+      surface,
+      0.3,
+      new THREE.Vector3(0, -1, 0.4),
+      new THREE.Vector3(0, 0, (Math.random() - 0.5) * 2),
+      (at) => {
+        this.splash(at, 30);
+        this.sound.fail();
+      },
+      (o) => (o.visible = false),
+    );
+  }
+
+  private refreshHud() {
+    if (this.mode === 'endless') {
+      this.hud.setStars(0, 'stars', 0);
+      this.hud.setFalls(this.endless.falls, MAX_FALLS, true);
+    } else {
+      this.hud.setStars(starsRemaining(this.game.falls), 'stars');
+      this.hud.setFalls(this.game.falls, MAX_FALLS, this.game.falls > 0);
+    }
   }
 
   private updateHand() {
@@ -492,7 +554,7 @@ export class App {
     this.hud.showHand(s.x, s.y);
   }
 
-  private async levelDone(end: Extract<GameEvent, { type: 'end' }>) {
+  private async levelDone(end: Ev<'end'>) {
     const gen = this.generation;
     this.phase = 'result';
     const won = end.status === 'won';
@@ -505,9 +567,7 @@ export class App {
       vibrate([20, 40, 20]);
       const center = new THREE.Vector3(0, this.mobile!.ceilingY - 1.5, 1);
       this.particles.confetti(center, end.perfect ? 160 : 60, end.perfect ? 1.4 : 0.8);
-      if (end.perfect) {
-        setTimeout(() => this.sound.perfect(), 350);
-      }
+      if (end.perfect) setTimeout(() => this.sound.perfect(), 350);
       this.progress = recordLevel(
         this.progress,
         this.levelIndex,
@@ -516,7 +576,7 @@ export class App {
         LEVELS.length,
       );
       saveProgress(safeStorage(), this.progress);
-    } else {
+    } else if (end.reason !== 'lava') {
       this.sound.fail();
       vibrate([60, 60, 60]);
     }
@@ -525,6 +585,7 @@ export class App {
     this.hud.showResult(
       {
         won,
+        reason: end.reason,
         stars: end.stars,
         falls: end.falls,
         perfect: end.perfect,
@@ -543,9 +604,10 @@ export class App {
     }
     this.sound.win();
     if (perfect) {
+      // a Perfect round forgives one fall
       this.sound.perfect();
-      this.endless.lives = Math.min(ENDLESS_LIVES, this.endless.lives + 1);
-      this.refreshStars();
+      this.endless.falls = Math.max(0, this.endless.falls - 1);
+      this.refreshHud();
     }
     this.particles.confetti(
       new THREE.Vector3(0, this.mobile!.ceilingY - 1.5, 1),
@@ -556,10 +618,9 @@ export class App {
     await this.timers.wait(1.3);
     if (gen !== this.generation) return;
     this.endless.round += 1;
-    const lives = this.endless.lives;
-    const score = this.endless.score;
+    const { falls, score } = this.endless;
     this.setup(endlessLevel(this.endless.seed, this.endless.round), this.endless.round);
-    this.endless.lives = lives;
+    this.endless.falls = falls;
     this.endless.score = score;
     this.beginPlaying();
   }
@@ -592,13 +653,19 @@ export class App {
       if (!v || !target || this.jumps.some((j) => j.view === v)) continue;
       v.root.position.lerp(target, Math.min(1, dt * 8));
     }
-    // placed Tottlers react to the tilt; falling ones slide first
-    for (const [id, pid] of this.onPlatform) {
-      const v = this.views.get(id);
-      if (!v) continue;
-      v.agitation = this.mobile?.platformTilt(pid) ?? 0;
-      if (v.mood === 'whoa' && v.root.userData.slide)
-        v.root.position.x += v.root.userData.slide * dt * 0.9;
+    // placed Tottlers shuffle to their packed spot and react to the tilt / heat
+    for (const [pid, list] of Object.entries(this.shown)) {
+      const xs = packPositions(list.map((t) => t.weight as Weight));
+      list.forEach((t, i) => {
+        const v = this.views.get(t.id);
+        if (!v || v.mood === 'fall' || !this.onPlatform.has(t.id)) return;
+        if (v.mood !== 'whoa')
+          v.root.position.x += (xs[i] - v.root.position.x) * Math.min(1, dt * 6);
+        v.agitation = Math.max(
+          Math.abs(this.mobile?.platformTilt(pid) ?? 0),
+          (this.mobile?.heat(pid) ?? 0) * 1.2,
+        );
+      });
     }
     for (const v of this.views.values()) v.update(dt);
     this.physics.update(dt);
@@ -619,9 +686,9 @@ export class App {
   };
 
   private updateQueueCount() {
-    const extra = this.game.queue.length - 3;
     if (this.phase !== 'playing' && this.phase !== 'busy') return;
-    const p = this.queueOrigin.clone().add(new THREE.Vector3(QUEUE_SPACING * 2 + 1.15, 0.6, -0.4));
+    const extra = this.game.queue.length - 3;
+    const p = this.queueOrigin.clone().add(new THREE.Vector3(QUEUE_SPACING * 2 + 1.1, 0.5, -0.3));
     const s = this.stage.toScreen(p);
     this.hud.setQueueCount(Math.max(0, extra), s.x, s.y);
   }
@@ -629,16 +696,16 @@ export class App {
   // ───────────────────────── test hooks ─────────────────────────
 
   debugState() {
-    const platforms: Record<string, { x: number; y: number; count: number; capacity: number }> = {};
+    const platforms: Record<string, { x: number; y: number; count: number; free: number }> = {};
     if (this.mobile) {
-      for (const [id, p] of this.mobile.platforms) {
+      for (const [id] of this.mobile.platforms) {
         const top = this.mobile.platformTop(id).add(new THREE.Vector3(0, 0.55, 0));
         const s = this.stage.toScreen(top);
         platforms[id] = {
           x: s.x,
           y: s.y,
           count: this.game.loads[id].length,
-          capacity: p.node.capacity,
+          free: freeWidth(this.game, id),
         };
       }
     }
@@ -647,14 +714,13 @@ export class App {
       mode: this.mode,
       level: this.mode === 'level' ? this.levelIndex + 1 : this.endless.round + 1,
       queue: this.game.queue.map((t) => t.weight),
-      falls: this.game.falls,
+      falls: this.mode === 'endless' ? this.endless.falls : this.game.falls,
       status: this.game.status,
-      lives: this.endless.lives,
+      failReason: this.game.failReason ?? null,
       score: this.endless.score,
       hint: hint(this.game),
       platforms,
       progress: this.progress,
-      tottlerHeight: TOTTLER_HEIGHT,
     };
   }
 }

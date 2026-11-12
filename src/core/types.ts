@@ -6,8 +6,11 @@ export type Side = 'left' | 'right';
 export interface PlatformNode {
   kind: 'platform';
   id: string;
-  /** Number of slots on the platform. */
-  capacity: number;
+  /**
+   * Width of the platform in "width units". A Tottler of weight w takes w + 1 units.
+   * Sizes used by levels: S = 6, M = 9, L = 12.
+   */
+  size: number;
 }
 
 export interface Arm {
@@ -33,6 +36,11 @@ export interface LevelDef {
   root: BeamNode;
   /** Tottlers in arrival order. */
   queue: Weight[];
+  /**
+   * Distance between the lowest platform (empty, at rest) and the lava. Default 1.2.
+   * Smaller = more dangerous.
+   */
+  lavaGap?: number;
   /** Levels 1-3: show the animated hand hint. */
   tutorial?: boolean;
 }

@@ -7,30 +7,38 @@ interface Body {
   obj: THREE.Object3D;
   /** Rapier body, or null when using the simple fallback integrator. */
   rb: RAPIER_NS.RigidBody | null;
+  radius: number;
   vel: THREE.Vector3;
   spin: THREE.Vector3;
   age: number;
-  life: number;
-  bounced: boolean;
+  /** Time since it touched the lava (−1 = not yet). */
+  sunk: number;
+  baseScale: number;
+  onSplash: (at: THREE.Vector3) => void;
   onDone: (obj: THREE.Object3D) => void;
-  onBounce?: () => void;
+}
+
+export interface Rock {
+  x: number;
+  y: number; // top
+  z: number;
+  hw: number;
+  hd: number;
 }
 
 /**
- * Rapier is only used for the show: a falling Tottler tumbles, bounces on the ground and
- * disappears. It never decides game results.
+ * Rapier is only used for the show: a falling Tottler tumbles, may bounce on the rock, and
+ * sinks in the lava. It never decides game results.
  */
 export class FallPhysics {
   private R: Rapier | null = null;
   private world: RAPIER_NS.World | null = null;
   private bodies: Body[] = [];
   private acc = 0;
-  private groundY = -8;
-  private groundHW = 6;
-  private groundHD = 2;
+  private lavaY = -8;
+  private rock: Rock = { x: 0, y: -9, z: 0, hw: 1, hd: 1 };
 
-  async init(groundY: number) {
-    this.groundY = groundY;
+  async init() {
     try {
       const mod = await import('@dimforge/rapier3d-compat');
       const R = (mod.default ?? mod) as Rapier;
@@ -42,67 +50,63 @@ export class FallPhysics {
     }
   }
 
-  setGround(y: number, hw: number, hd: number) {
-    this.groundY = y;
-    this.groundHW = hw;
-    this.groundHD = hd;
+  setScene(lavaY: number, rock: Rock) {
+    this.lavaY = lavaY;
+    this.rock = rock;
     if (this.R) this.resetWorld();
   }
 
   private resetWorld() {
     const R = this.R!;
-    for (const b of this.bodies) b.onDone(b.obj);
-    this.bodies = [];
+    this.clear();
     this.world?.free();
     this.world = new R.World({ x: 0, y: -22, z: 0 });
-    // The island: Tottlers that miss it keep falling off-screen.
-    const ground = R.ColliderDesc.cuboid(this.groundHW * 0.92, 0.5, this.groundHD * 0.85)
-      .setTranslation(0, this.groundY - 0.5, 0)
-      .setRestitution(0.55)
-      .setFriction(0.6);
-    this.world.createCollider(ground);
+    const r = this.rock;
+    this.world.createCollider(
+      R.ColliderDesc.cuboid(r.hw, 0.5, r.hd)
+        .setTranslation(r.x, r.y - 0.5, r.z)
+        .setRestitution(0.5)
+        .setFriction(0.6),
+    );
   }
 
-  get ready() {
-    return !!this.world;
-  }
-
-  /** Launch a Tottler (already re-parented to the scene, at its world transform). */
+  /** Launch an object (already in world space). Returns nothing; callbacks report progress. */
   drop(
     obj: THREE.Object3D,
     radius: number,
     vel: THREE.Vector3,
     spin: THREE.Vector3,
+    onSplash: (at: THREE.Vector3) => void,
     onDone: (o: THREE.Object3D) => void,
-    onBounce?: () => void,
   ) {
     let rb: RAPIER_NS.RigidBody | null = null;
     if (this.world && this.R) {
       const R = this.R;
       const q = obj.quaternion;
-      const desc = R.RigidBodyDesc.dynamic()
-        .setTranslation(obj.position.x, obj.position.y + radius, obj.position.z)
-        .setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
-        .setLinvel(vel.x, vel.y, vel.z)
-        .setAngvel({ x: spin.x, y: spin.y, z: spin.z });
-      rb = this.world.createRigidBody(desc);
+      rb = this.world.createRigidBody(
+        R.RigidBodyDesc.dynamic()
+          .setTranslation(obj.position.x, obj.position.y + radius, obj.position.z)
+          .setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
+          .setLinvel(vel.x, vel.y, vel.z)
+          .setAngvel({ x: spin.x, y: spin.y, z: spin.z }),
+      );
       this.world.createCollider(
-        R.ColliderDesc.ball(radius).setRestitution(0.6).setDensity(1).setFriction(0.5),
+        R.ColliderDesc.ball(radius).setRestitution(0.55).setFriction(0.5),
         rb,
       );
     }
     this.bodies.push({
       obj,
       rb,
+      radius,
       vel: vel.clone(),
       spin: spin.clone(),
       age: 0,
-      life: 2.0,
-      bounced: false,
+      sunk: -1,
+      baseScale: obj.scale.x,
+      onSplash,
       onDone,
-      onBounce,
     });
-    (obj.userData as { radius: number }).radius = radius;
   }
 
   update(dt: number) {
@@ -117,43 +121,44 @@ export class FallPhysics {
     }
     for (const b of this.bodies) {
       b.age += dt;
-      const r = (b.obj.userData as { radius: number }).radius;
+      if (b.sunk >= 0) {
+        // sinking: slow, shrinking
+        b.sunk += dt;
+        b.obj.position.y -= dt * 0.8;
+        b.obj.scale.setScalar(Math.max(0.001, b.baseScale * (1 - b.sunk / 0.6)));
+        continue;
+      }
       if (b.rb) {
         const p = b.rb.translation();
         const q = b.rb.rotation();
-        b.obj.position.set(p.x, p.y - r, p.z);
+        b.obj.position.set(p.x, p.y - b.radius, p.z);
         b.obj.quaternion.set(q.x, q.y, q.z, q.w);
-        if (!b.bounced && Math.abs(p.y - r - this.groundY) < 0.2 && b.age > 0.2) {
-          b.bounced = true;
-          b.onBounce?.();
-        }
       } else {
-        // fallback: simple ballistic with one bounce
         b.vel.y -= 22 * dt;
         b.obj.position.addScaledVector(b.vel, dt);
         b.obj.rotation.x += b.spin.x * dt;
         b.obj.rotation.z += b.spin.z * dt;
-        const onIsland =
-          Math.abs(b.obj.position.x) < this.groundHW * 0.92 &&
-          Math.abs(b.obj.position.z) < this.groundHD;
-        if (onIsland && b.obj.position.y < this.groundY && b.obj.position.y > this.groundY - 0.6) {
-          b.obj.position.y = this.groundY;
+        const r = this.rock;
+        const onRock =
+          Math.abs(b.obj.position.x - r.x) < r.hw && Math.abs(b.obj.position.z - r.z) < r.hd;
+        if (onRock && b.obj.position.y < r.y && b.obj.position.y > r.y - 0.5 && b.vel.y < 0) {
+          b.obj.position.y = r.y;
           b.vel.y = Math.abs(b.vel.y) * 0.5;
           b.vel.x *= 0.7;
-          if (!b.bounced) {
-            b.bounced = true;
-            b.onBounce?.();
-          }
         }
       }
-      // shrink away at the end of its life
-      const fade = b.age - (b.life - 0.35);
-      if (fade > 0)
-        b.obj.scale.setScalar(Math.max(0.001, (b.obj.userData.baseScale ?? 1) * (1 - fade / 0.35)));
+      if (b.obj.position.y + b.radius * 0.5 < this.lavaY) {
+        b.sunk = 0;
+        if (b.rb && this.world) {
+          this.world.removeRigidBody(b.rb);
+          b.rb = null;
+        }
+        b.onSplash(new THREE.Vector3(b.obj.position.x, this.lavaY, b.obj.position.z));
+      }
     }
-    const done = this.bodies.filter((b) => b.age >= b.life);
+    const done = this.bodies.filter((b) => b.sunk > 0.6 || b.age > 6);
     if (done.length) {
-      this.bodies = this.bodies.filter((b) => b.age < b.life);
+      this.bodies = this.bodies.filter((b) => !done.includes(b));
       for (const b of done) {
         if (b.rb && this.world) this.world.removeRigidBody(b.rb);
         b.onDone(b.obj);

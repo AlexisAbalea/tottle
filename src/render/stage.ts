@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PALETTE, toon } from './materials';
+import { toon } from './materials';
 
 /** Renderer, camera, lights, ground and background decoration. */
 export class Stage {
@@ -7,11 +7,13 @@ export class Stage {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(36, 9 / 16, 0.1, 200);
   readonly sun: THREE.DirectionalLight;
-  readonly ground: THREE.Mesh;
+  readonly lava: THREE.Mesh;
+  private lavaTex: THREE.CanvasTexture;
+  private lavaLight: THREE.PointLight;
   private clouds: THREE.Object3D[] = [];
-  groundY = -8;
+  lavaY = -8;
   /** Screen pixels reserved at the top (HUD) and bottom. */
-  insetTop = 70;
+  insetTop = 125;
   insetBottom = 10;
 
   constructor(readonly canvas: HTMLCanvasElement) {
@@ -36,16 +38,15 @@ export class Stage {
     this.sun.shadow.bias = -0.0008;
     this.scene.add(this.sun, this.sun.target);
 
-    // Ground: a soft grassy island (an ellipse) under the mobile, where the queue waits.
-    const g = new THREE.CylinderGeometry(1, 1, 1, 48);
-    g.translate(0, -0.5, 0);
-    this.ground = new THREE.Mesh(g, toon(PALETTE.ground));
-    this.ground.receiveShadow = true;
-    const rim = new THREE.Mesh(g, toon(PALETTE.groundDark));
-    rim.scale.set(1.0, 0.6, 1.0);
-    rim.position.y = -0.95;
-    this.ground.add(rim);
-    this.scene.add(this.ground);
+    // Lava pool: a wide glowing slab with a scrolling texture.
+    this.lavaTex = lavaTexture();
+    const lavaMat = new THREE.MeshBasicMaterial({ map: this.lavaTex, toneMapped: false });
+    // its back edge sits just behind the mobile, so the lava line on screen is where the rules put it
+    this.lava = new THREE.Mesh(new THREE.BoxGeometry(60, 6, 4.5), lavaMat);
+    this.scene.add(this.lava);
+    // warm light coming from the lava
+    this.lavaLight = new THREE.PointLight(0xff6a00, 6, 9, 1.6);
+    this.scene.add(this.lavaLight);
 
     // Low-poly clouds in the background (one shared geometry).
     const cg = new THREE.IcosahedronGeometry(1, 0);
@@ -65,11 +66,11 @@ export class Stage {
     }
   }
 
-  /** Island top at height y, half-width hw (x) and half-depth hd (z). */
-  setGround(y: number, hw: number, hd: number) {
-    this.groundY = y;
-    this.ground.position.set(0, y, 0);
-    this.ground.scale.set(hw, 0.7, hd);
+  /** Lava surface at height y. */
+  setLava(y: number) {
+    this.lavaY = y;
+    this.lava.position.set(0, y - 3, 1.65);
+    this.lavaLight.position.set(0, y + 1.2, 1.5);
   }
 
   /** Frame a world box so that it fits the portrait screen (minus the HUD inset). */
@@ -112,6 +113,8 @@ export class Stage {
   }
 
   update(dt: number) {
+    this.lavaTex.offset.x += dt * 0.02;
+    this.lavaTex.offset.y += dt * 0.012;
     for (const c of this.clouds) {
       c.position.x += c.userData.speed * dt;
       if (c.position.x > 14) c.position.x = -14;
@@ -129,4 +132,37 @@ export class Stage {
     const h = this.canvas.clientHeight;
     return { x: ((p.x + 1) / 2) * w, y: ((1 - p.y) / 2) * h };
   }
+}
+
+/** Hand-painted lava: orange base with brighter blobs (tiles seamlessly enough when scrolled). */
+function lavaTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#ff6224';
+  g.fillRect(0, 0, 256, 256);
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const blob = (color: string, n: number, r0: number, r1: number) => {
+    g.fillStyle = color;
+    for (let i = 0; i < n; i++) {
+      const x = rnd() * 256;
+      const y = rnd() * 256;
+      const r = r0 + rnd() * (r1 - r0);
+      for (const dx of [-256, 0, 256])
+        for (const dy of [-256, 0, 256]) {
+          g.beginPath();
+          g.ellipse(x + dx, y + dy, r * 1.6, r, 0, 0, Math.PI * 2);
+          g.fill();
+        }
+    }
+  };
+  blob('#f24e1c', 14, 18, 34);
+  blob('#ff8a2e', 16, 8, 20);
+  blob('#ffc23a', 10, 3, 7);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(6, 0.8);
+  return t;
 }

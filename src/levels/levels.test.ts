@@ -3,7 +3,7 @@ import { LEVELS } from './levels';
 import { endlessLevel } from './endless';
 import { solveLevel } from '../core/solver';
 import { createGame, place } from '../core/game';
-import { depthOf, totalCapacity, validateStructure } from '../core/structure';
+import { depthOf, validateStructure } from '../core/structure';
 
 describe('hand-made levels', () => {
   it('has 15 levels', () => expect(LEVELS).toHaveLength(15));
@@ -11,13 +11,17 @@ describe('hand-made levels', () => {
   for (const lv of LEVELS) {
     it(`level ${lv.id} is valid and can be finished with 3 stars`, () => {
       validateStructure(lv.root);
-      expect(totalCapacity(lv.root)).toBeGreaterThanOrEqual(lv.queue.length);
       const sol = solveLevel(lv);
       expect(sol, `level ${lv.id} has no 3-star solution`).not.toBeNull();
       let g = createGame(lv);
       for (const pid of sol!) g = place(g, pid).state;
       expect(g.status).toBe('won');
       expect(g.falls).toBe(0);
+    });
+
+    it(`level ${lv.id}: no first move drops a platform into the lava`, () => {
+      const g = createGame(lv);
+      for (const p of g.platforms) expect(place(g, p.id).state.failReason).not.toBe('lava');
     });
   }
 

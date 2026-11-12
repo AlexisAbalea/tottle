@@ -1,8 +1,10 @@
 # Tottle
 
-A bright low-poly 3D balance puzzle for phones. Little **Tottlers** arrive one by one — tap a
-platform of the hanging mobile to place each one. Every Tottler tips its beam (and every beam
-above it). Tip a beam past its limit and someone falls. Place everyone, drop as few as possible.
+A bright low-poly 3D balance puzzle for phones. Little **Tottlers** wait on a cloud — tap a
+platform of the hanging mobile to send each one down. Every Tottler tips its beam (and every
+beam above it). Tip a beam past its limit and everyone on that side falls — which can tip the
+other side too. Below: lava. Load a platform too low and it breaks. Place everyone, drop as
+few as possible.
 
 **Play:** https://alexisabalea.github.io/tottle/
 
@@ -16,7 +18,7 @@ npm run dev        # http://localhost:5173 (also exposed on your LAN for phone t
 ## Test
 
 ```bash
-npm test           # Vitest: rules, solver, all 15 levels 3-star solvable, progress
+npm test           # Vitest: rules, lava geometry, solver, all 15 levels 3-star solvable
 npm run e2e        # Playwright (390×844 mobile): plays every level in a real browser
 npm run lint       # ESLint
 npm run typecheck

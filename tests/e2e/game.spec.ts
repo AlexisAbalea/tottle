@@ -54,19 +54,35 @@ test('progress survives a reload', async ({ page }) => {
   await expect(page.getByTestId('start-level')).toHaveText('LEVEL 2');
 });
 
-test('a bad move makes a Tottler fall and costs a star', async ({ page }) => {
+test('overloading one side dumps everyone on it (snowball) and costs stars', async ({ page }) => {
   await page.getByTestId('play').click({ force: true });
-  // Level 1: tolerance 1. Two on the same side → the second one falls.
-  await page.evaluate(() => window.__tottle.tap('p0'));
-  await waitIdle(page);
-  await page.waitForFunction(() => window.__tottle.state().queue.length === 3);
-  await page.evaluate(() => window.__tottle.tap('p0'));
-  await page.waitForTimeout(250);
-  await page.waitForFunction(() => window.__tottle.state().phase === 'playing');
+  // Level 1: tolerance 2. Three on the left → the left side tips and all three fall.
+  for (let i = 0; i < 3; i++) {
+    await page.evaluate(() => window.__tottle.tap('p0'));
+    await page.waitForTimeout(100);
+    await waitIdle(page);
+  }
   const s = await state(page);
-  expect(s.falls).toBe(1);
-  expect(s.platforms.p0.count).toBe(1);
-  await expect(page.locator('[data-testid=stars] .star.off')).toHaveCount(1);
+  expect(s.falls).toBe(3);
+  expect(s.platforms.p0.count).toBe(0);
+  await expect(page.locator('[data-testid=stars] .star.off')).toHaveCount(2);
+  await expect(page.getByTestId('falls-pill')).toContainText('3/10');
+});
+
+test('a platform that touches the lava breaks and loses the level', async ({ page }) => {
+  // Level 4: two Tottlers in a row on the small left platform sink it into the lava.
+  await page.evaluate(() => window.__tottle.load(4));
+  await waitIdle(page);
+  for (let i = 0; i < 2; i++) {
+    await page.evaluate(() => window.__tottle.tap('p0'));
+    await page.waitForTimeout(100);
+    await waitIdle(page);
+  }
+  const s = await state(page);
+  expect(s.status).toBe('failed');
+  expect(s.failReason).toBe('lava');
+  await expect(page.getByTestId('fail-lava')).toBeVisible();
+  await page.screenshot({ path: 'test-results/lava-fail.png' });
 });
 
 test('every level can be finished with 3 stars in the browser', async ({ page }) => {
@@ -82,7 +98,7 @@ test('every level can be finished with 3 stars in the browser', async ({ page })
   expect((await state(page)).progress.level).toBe(15);
 });
 
-test('endless mode runs rounds and ends when hearts are gone', async ({ page }) => {
+test('endless mode runs rounds and ends after 10 falls or lava', async ({ page }) => {
   await page.evaluate(() => {
     localStorage.setItem(
       'tottle.progress.v1',
@@ -109,10 +125,7 @@ test('endless mode runs rounds and ends when hearts are gone', async ({ page }) 
       await page.waitForTimeout(100);
       continue;
     }
-    const ids = Object.keys(s.platforms).filter(
-      (k) => s.platforms[k].count < s.platforms[k].capacity,
-    );
-    await page.evaluate((id) => window.__tottle.tap(id), ids[0]);
+    await page.evaluate((id) => window.__tottle.tap(id), Object.keys(s.platforms)[0]);
     await page.waitForTimeout(50);
     await waitIdle(page);
   }

@@ -94,6 +94,17 @@ export class Sound {
     this.noise(0.12, 0.5, 400);
     this.tone('sine', 110, 50, 0.18, 0.4);
   }
+  /** Something falls into the lava. */
+  sizzle() {
+    this.noise(0.45, 0.35, 3200);
+    this.tone('sine', 220, 90, 0.25, 0.25);
+  }
+  /** Ropes snapping. */
+  snap() {
+    this.noise(0.06, 0.6, 5000);
+    this.tone('square', 900, 200, 0.12, 0.15);
+    this.noise(0.06, 0.6, 5000, 0.1);
+  }
   poof() {
     this.noise(0.18, 0.25, 2500);
   }

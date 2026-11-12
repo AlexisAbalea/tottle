@@ -2,7 +2,7 @@
 import { LEVELS } from '../src/levels/levels';
 import { countSolutions, solveLevel } from '../src/core/solver';
 import { createGame, place, canPlace } from '../src/core/game';
-import { listPlatforms, totalCapacity } from '../src/core/structure';
+import { listPlatforms, totalSize } from '../src/core/structure';
 
 function randomRun(lv: (typeof LEVELS)[number]) {
   let g = createGame(lv);
@@ -35,6 +35,6 @@ for (const lv of LEVELS) {
     if (myopicRun(lv).falls === 0) m3++;
   }
   console.log(
-    `L${lv.id.padStart(2)} plats=${listPlatforms(lv.root).length} cap=${totalCapacity(lv.root)} q=${lv.queue.length} solvable=${!!sol} sols=${countSolutions(lv)} random3★=${((100 * r3) / N).toFixed(1)}% myopic3★=${((100 * m3) / N).toFixed(1)}%`,
+    `L${lv.id.padStart(2)} plats=${listPlatforms(lv.root).length} size=${totalSize(lv.root)} q=${lv.queue.length} solvable=${!!sol} sols=${countSolutions(lv)} random3★=${((100 * r3) / N).toFixed(1)}% myopic3★=${((100 * m3) / N).toFixed(1)}%`,
   );
 }

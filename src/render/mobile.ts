@@ -1,39 +1,58 @@
 import * as THREE from 'three';
 import type { BeamNode, Loads, PlatformNode, StructureNode } from '../core/types';
-import { beamStatus, tiltRatio } from '../core/balance';
+import { platformWeights, tiltRatio, tottlerWidth } from '../core/balance';
 import {
-  PLATFORM_DROP,
-  SLOT_W,
-  SUBBEAM_DROP,
+  PLATFORM_THICK,
+  WIDTH_UNIT,
   computeLayout,
-  platformWidth,
+  platformPoses,
+  platformWorldWidth,
+  tiltAngle,
   type NodeLayout,
-} from './layout';
-import { PALETTE, STATUS_COLORS, basic, dialMaterial, toon } from './materials';
-
-/** Max visual tilt (radians) when a beam is exactly at its tolerance. */
-export const MAX_TILT = THREE.MathUtils.degToRad(11);
-const TILT_CLAMP = 1.4;
+  type PlatformPose,
+} from '../core/geometry';
+import { PALETTE, SIZE_COLORS, toon } from './materials';
 
 const ropeGeo = new THREE.CylinderGeometry(0.035, 0.035, 1, 6);
 ropeGeo.translate(0, 0.5, 0); // origin at the bottom end
 const sphereGeo = new THREE.SphereGeometry(1, 12, 8);
 const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-const hubGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.32, 16);
+const hubGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.34, 16);
 hubGeo.rotateX(Math.PI / 2);
-const slotGeo = new THREE.CircleGeometry(0.24, 20);
-slotGeo.rotateX(-Math.PI / 2);
-const dialGeo = new THREE.PlaneGeometry(0.9, 0.49);
-dialGeo.translate(0, -0.245 + 0.015, 0);
-const needleGeo = new THREE.BoxGeometry(0.05, 0.4, 0.02);
-needleGeo.translate(0, -0.2, 0);
+const UP = new THREE.Vector3(0, 1, 0);
+const CEILING_Y = 1.1;
+/** Top of the cloud the queue stands on. */
+export const CLOUD_TOP = CEILING_Y + 0.55;
+export const CLOUD_HALF_W = 2.5;
 
-function rope(mat: THREE.Material) {
-  const m = new THREE.Mesh(ropeGeo, mat);
-  return m;
+function makeCloud(): THREE.Group {
+  const g = new THREE.Group();
+  const mat = toon(0xffffff);
+  const geo = new THREE.IcosahedronGeometry(1, 1);
+  const puffs: [number, number, number, number][] = [
+    [-2.1, 0.15, 0, 0.55],
+    [-1.3, 0.25, 0.1, 0.7],
+    [-0.4, 0.3, 0, 0.75],
+    [0.5, 0.3, 0.1, 0.75],
+    [1.4, 0.25, 0, 0.7],
+    [2.2, 0.15, 0.05, 0.55],
+  ];
+  for (const [x, y, z, r] of puffs) {
+    const m = new THREE.Mesh(geo, mat);
+    m.scale.set(r, r * 0.75, r * 0.9);
+    m.position.set(x, CEILING_Y + y, z);
+    g.add(m);
+  }
+  // flat top so the queue has a floor
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.2, 24), mat);
+  top.scale.set(CLOUD_HALF_W, 1, 0.75);
+  top.position.set(0, CLOUD_TOP - 0.1, 0.1);
+  top.receiveShadow = true;
+  g.add(top);
+  return g;
 }
 
-/** Stretch a bottom-anchored rope mesh between two points (in its parent's space). */
+/** Stretch a bottom-anchored rope mesh between two world points. */
 function setRope(m: THREE.Mesh, from: THREE.Vector3, to: THREE.Vector3) {
   const d = to.clone().sub(from);
   const len = d.length();
@@ -41,109 +60,100 @@ function setRope(m: THREE.Mesh, from: THREE.Vector3, to: THREE.Vector3) {
   m.scale.set(1, Math.max(0.001, len), 1);
   m.quaternion.setFromUnitVectors(UP, d.normalize());
 }
-const UP = new THREE.Vector3(0, 1, 0);
 
 interface BeamView {
   node: BeamNode;
   layout: NodeLayout;
   group: THREE.Group; // at pivot, rotated by angle
-  gauge: THREE.Group; // at pivot, not rotated
-  needle: THREE.Mesh;
-  hub: THREE.Mesh;
-  hubMat: THREE.MeshToonMaterial;
-  rope: THREE.Mesh; // from parent hook to pivot (in world)
+  rope: THREE.Mesh; // parent hook (or ceiling) → pivot
   angle: number;
   vel: number;
   target: number;
   ratio: number;
-  shownRatio: number;
 }
 
 export interface PlatformView {
   node: PlatformNode;
-  /** At the hook, rotated with the parent beam. */
-  group: THREE.Group;
-  /** At the platform top centre; Tottlers are children of this. */
+  /** At the platform top centre, rotated with its beam. Tottlers are children of this. */
   surface: THREE.Group;
-  tray: THREE.Mesh;
+  ropes: [THREE.Mesh, THREE.Mesh];
+  heatMat: THREE.MeshToonMaterial;
   width: number;
-  parentBeam: BeamView;
+  /** Displayed weight (springs towards the real one: the rope stretches smoothly). */
+  weight: number;
+  targetWeight: number;
+  pose: PlatformPose;
   highlight: number;
+  broken: boolean;
 }
 
 /**
- * The hanging structure: beams, ropes, platforms and gauges. Reads loads, animates tilts
- * with a spring and exposes platform transforms for Tottlers and touch picking.
+ * The hanging structure: beams, ropes and platforms. Tilts are spring-animated towards
+ * the angles the rules compute; positions come from core/geometry, so lava contact on
+ * screen matches the rules.
  */
 export class MobileView {
   readonly group = new THREE.Group();
   readonly beams: BeamView[] = [];
   readonly platforms = new Map<string, PlatformView>();
   readonly layout: Map<string, NodeLayout>;
-  readonly rootPivot: THREE.Vector3;
-  readonly ceilingY: number;
-  readonly bottomY: number;
+  readonly ceilingY = CEILING_Y;
   private beamById = new Map<string, BeamView>();
+  lava = -100;
 
-  constructor(
-    readonly root: BeamNode,
-    pivotY: number,
-  ) {
+  constructor(readonly root: BeamNode) {
     this.layout = computeLayout(root);
-    this.rootPivot = new THREE.Vector3(0, pivotY, 0);
-    this.ceilingY = pivotY + 1.1;
-    this.bottomY = pivotY - this.layout.get(root.id)!.depth;
-    this.build(root, null);
-    // ceiling bar
-    const ceiling = new THREE.Mesh(boxGeo, toon(PALETTE.beamDark));
-    const cw = 1.6;
-    ceiling.scale.set(cw, 0.22, 0.6);
-    ceiling.position.set(0, this.ceilingY + 0.11, 0);
-    this.group.add(ceiling);
+    this.build(root);
+    // The mobile hangs from a fluffy cloud; the waiting Tottlers stand on top of it.
+    this.group.add(makeCloud());
     this.update(0);
   }
 
-  private build(n: StructureNode, parent: BeamView | null): void {
+  private build(n: StructureNode): void {
     if (n.kind === 'platform') {
-      const width = platformWidth(n.capacity);
-      const group = new THREE.Group();
+      const width = platformWorldWidth(n.size);
       const surface = new THREE.Group();
-      surface.position.set(0, -PLATFORM_DROP, 0);
-      group.add(surface);
-      const tray = new THREE.Mesh(boxGeo, toon(PALETTE.platform));
-      tray.scale.set(width, 0.18, 0.95);
-      tray.position.set(0, -0.09, 0);
+      const color = SIZE_COLORS[n.size >= 12 ? 'L' : n.size >= 9 ? 'M' : 'S'];
+      const tray = new THREE.Mesh(boxGeo, toon(color));
+      tray.scale.set(width, PLATFORM_THICK * 0.6, 0.95);
+      tray.position.set(0, -PLATFORM_THICK * 0.3, 0);
       tray.receiveShadow = true;
       surface.add(tray);
-      const lip = new THREE.Mesh(boxGeo, toon(PALETTE.platformSide));
-      lip.scale.set(width + 0.02, 0.08, 0.97);
-      lip.position.set(0, -0.2, 0);
-      surface.add(lip);
-      for (let i = 0; i < n.capacity; i++) {
-        const s = new THREE.Mesh(slotGeo, basic(PALETTE.slot));
-        s.position.set(slotX(n.capacity, i), 0.005, 0.05);
-        s.receiveShadow = true;
-        surface.add(s);
+      // underside glows when the lava gets close
+      const heatMat = new THREE.MeshToonMaterial({
+        color: PALETTE.platformSide,
+        gradientMap: toon(0).gradientMap,
+        emissive: 0xff3300,
+        emissiveIntensity: 0,
+      });
+      const under = new THREE.Mesh(boxGeo, heatMat);
+      under.scale.set(width - 0.04, PLATFORM_THICK * 0.4, 0.9);
+      under.position.set(0, -PLATFORM_THICK * 0.8, 0);
+      surface.add(under);
+      // rims at both ends make the size easy to read
+      for (const sx of [-1, 1]) {
+        const rim = new THREE.Mesh(boxGeo, toon(PALETTE.beamDark));
+        rim.scale.set(0.08, 0.16, 0.97);
+        rim.position.set((sx * width) / 2, 0.02, 0);
+        surface.add(rim);
       }
       const ropeMat = toon(PALETTE.rope);
-      const top = new THREE.Vector3(0, 0, 0);
-      for (const sx of [-1, 1]) {
-        const r = rope(ropeMat);
-        setRope(r, new THREE.Vector3((sx * width) / 2 - sx * 0.08, -PLATFORM_DROP, 0), top);
-        group.add(r);
-      }
-      const knot = new THREE.Mesh(sphereGeo, toon(PALETTE.beamDark));
-      knot.scale.setScalar(0.09);
-      group.add(knot);
-      this.group.add(group);
+      const ropes: [THREE.Mesh, THREE.Mesh] = [
+        new THREE.Mesh(ropeGeo, ropeMat),
+        new THREE.Mesh(ropeGeo, ropeMat),
+      ];
+      this.group.add(surface, ...ropes);
       this.platforms.set(n.id, {
         node: n,
-        group,
         surface,
-        tray,
+        ropes,
+        heatMat,
         width,
-        parentBeam: parent!,
+        weight: 0,
+        targetWeight: 0,
+        pose: { hookX: 0, hookY: 0, x: 0, y: 0, angle: 0, bottom: 0, width },
         highlight: 0,
+        broken: false,
       });
       return;
     }
@@ -156,7 +166,7 @@ export class MobileView {
     bar.scale.set(armL + armR + 0.3, 0.22, 0.32);
     bar.position.set((armR - armL) / 2, 0, 0);
     group.add(bar);
-    // notches: one dot per "arm unit" so the player can compare arm lengths
+    // one white dot per "arm unit" so the player can compare arm lengths
     const notchMat = toon(0xffffff);
     for (const [side, len] of [
       [-1, n.left.length],
@@ -164,69 +174,47 @@ export class MobileView {
     ] as const) {
       for (let k = 1; k <= len; k++) {
         const d = new THREE.Mesh(sphereGeo, notchMat);
-        d.scale.set(0.07, 0.07, 0.03);
-        d.position.set(side * layout.unit! * k, 0, 0.165);
-        group.add(d);
+        d.scale.set(0.08, 0.08, 0.03);
+        d.position.set(side * layout.unit! * k * (k === len ? 0.999 : 1), 0, 0.165);
+        if (k < len) group.add(d);
       }
       const end = new THREE.Mesh(sphereGeo, toon(PALETTE.beamDark));
       end.scale.setScalar(0.15);
       end.position.set(side === -1 ? -armL : armR, 0, 0);
       group.add(end);
     }
-    const hubMat = new THREE.MeshToonMaterial({
-      color: STATUS_COLORS.green,
-      gradientMap: toon(0).gradientMap,
-    });
-    const hub = new THREE.Mesh(hubGeo, hubMat);
-    group.add(hub);
-
-    const gauge = new THREE.Group();
-    const dial = new THREE.Mesh(dialGeo, dialMaterial());
-    dial.position.set(0, -0.2, 0.17);
-    gauge.add(dial);
-    const needle = new THREE.Mesh(needleGeo, basic(PALETTE.eye));
-    needle.position.set(0, -0.2, 0.19);
-    gauge.add(needle);
-
-    const ropeM = rope(toon(PALETTE.rope));
-    this.group.add(group, gauge, ropeM);
-    const view: BeamView = {
-      node: n,
-      layout,
-      group,
-      gauge,
-      needle,
-      hub,
-      hubMat,
-      rope: ropeM,
-      angle: 0,
-      vel: 0,
-      target: 0,
-      ratio: 0,
-      shownRatio: 0,
-    };
+    group.add(new THREE.Mesh(hubGeo, toon(PALETTE.beamDark)));
+    const rope = new THREE.Mesh(ropeGeo, toon(PALETTE.rope));
+    this.group.add(group, rope);
+    const view: BeamView = { node: n, layout, group, rope, angle: 0, vel: 0, target: 0, ratio: 0 };
     this.beams.push(view);
     this.beamById.set(n.id, view);
-    this.build(n.left.child, view);
-    this.build(n.right.child, view);
+    this.build(n.left.child);
+    this.build(n.right.child);
   }
 
-  /** Set the loads to display; beams spring towards their new tilt. */
+  /** Set the loads to display; beams and ropes spring towards their new pose. */
   setLoads(loads: Loads) {
+    const w = platformWeights(loads);
     for (const b of this.beams) {
-      b.ratio = tiltRatio(b.node, loads);
-      b.target = -THREE.MathUtils.clamp(b.ratio, -TILT_CLAMP, TILT_CLAMP) * MAX_TILT;
+      b.ratio = tiltRatio(b.node, w);
+      b.target = tiltAngle(b.ratio);
     }
+    for (const [id, p] of this.platforms) p.targetWeight = w[id] ?? 0;
   }
 
-  /** Signed ratio of the beam a platform hangs from (for Tottler arm waving). */
+  /** Signed tilt ratio of the beam a platform hangs from (drives the arm waving). */
   platformTilt(platformId: string): number {
     const p = this.platforms.get(platformId);
-    return p ? p.parentBeam.shownRatio : 0;
+    if (!p) return 0;
+    return -p.pose.angle / ((18 * Math.PI) / 180);
   }
 
-  beamOf(id: string) {
-    return this.beamById.get(id);
+  /** 0 (far) … 1 (touching): how close a platform is to the lava. */
+  heat(platformId: string): number {
+    const p = this.platforms.get(platformId);
+    if (!p) return 0;
+    return THREE.MathUtils.clamp(1 - (p.pose.bottom - this.lava) / 1.2, 0, 1);
   }
 
   setHighlight(platformId: string | null) {
@@ -234,48 +222,60 @@ export class MobileView {
   }
 
   update(dt: number) {
-    const k = 55;
-    const c = 7.5;
+    const k = 50;
+    const c = 7;
+    const angles: Record<string, number> = {};
     for (const b of this.beams) {
       b.vel += (k * (b.target - b.angle) - c * b.vel) * dt;
       b.angle += b.vel * dt;
-      b.shownRatio += (b.ratio - b.shownRatio) * Math.min(1, dt * 8);
-      const status = beamStatus(b.shownRatio);
-      b.hubMat.color.setHex(STATUS_COLORS[status]);
-      const needleA =
-        THREE.MathUtils.clamp(b.shownRatio, -1.45, 1.45) * THREE.MathUtils.degToRad(60);
-      b.needle.rotation.z = needleA;
+      angles[b.node.id] = b.angle;
     }
-    this.place(this.root, null, null);
-    for (const p of this.platforms.values()) {
-      const s = 1 + p.highlight * 0.04;
-      p.tray.scale.y = 0.18 * s;
+    const weights: Record<string, number> = {};
+    for (const [id, p] of this.platforms) {
+      p.weight += (p.targetWeight - p.weight) * Math.min(1, dt * 6);
+      weights[id] = p.weight;
+    }
+    const pivots: Record<string, { x: number; y: number; hookX: number; hookY: number }> = {};
+    const poses = platformPoses(this.root, this.layout, angles, weights, pivots);
+    for (const b of this.beams) {
+      const pv = pivots[b.node.id];
+      b.group.position.set(pv.x, pv.y, 0);
+      b.group.rotation.z = b.angle;
+      const top =
+        b.node === this.root
+          ? new THREE.Vector3(0, CEILING_Y, 0)
+          : new THREE.Vector3(pv.hookX, pv.hookY, 0);
+      setRope(b.rope, new THREE.Vector3(pv.x, pv.y, 0), top);
+    }
+    for (const [id, p] of this.platforms) {
+      if (p.broken) continue;
+      const pose = poses[id];
+      p.pose = pose;
+      p.surface.position.set(pose.x, pose.y, 0);
+      p.surface.rotation.z = pose.angle;
+      p.surface.scale.setScalar(1 + p.highlight * 0.04);
+      const hook = new THREE.Vector3(pose.hookX, pose.hookY, 0);
+      const c0 = Math.cos(pose.angle);
+      const s0 = Math.sin(pose.angle);
+      const hw = p.width / 2 - 0.06;
+      for (const [i, sx] of [
+        [0, -1],
+        [1, 1],
+      ] as const) {
+        const corner = new THREE.Vector3(pose.x + sx * hw * c0, pose.y + sx * hw * s0, 0);
+        setRope(p.ropes[i], corner, hook);
+      }
+      p.heatMat.emissiveIntensity = this.heat(id) * 1.4;
     }
   }
 
-  private place(n: StructureNode, hook: THREE.Vector3 | null, parent: BeamView | null) {
-    if (n.kind === 'platform') {
-      const p = this.platforms.get(n.id)!;
-      p.group.position.copy(hook!);
-      p.group.rotation.z = parent!.angle;
-      return;
-    }
-    const b = this.beamById.get(n.id)!;
-    const pivot = hook
-      ? hook.clone().add(new THREE.Vector3(0, -SUBBEAM_DROP, 0))
-      : this.rootPivot.clone();
-    b.group.position.copy(pivot);
-    b.group.rotation.z = b.angle;
-    b.gauge.position.copy(pivot);
-    setRope(b.rope, pivot, hook ?? new THREE.Vector3(0, this.ceilingY, 0));
-    const cos = Math.cos(b.angle);
-    const sin = Math.sin(b.angle);
-    const armL = b.layout.armL!;
-    const armR = b.layout.armR!;
-    const left = new THREE.Vector3(pivot.x - armL * cos, pivot.y - armL * sin, 0);
-    const right = new THREE.Vector3(pivot.x + armR * cos, pivot.y + armR * sin, 0);
-    this.place(n.left.child, left, b);
-    this.place(n.right.child, right, b);
+  /** The platform touched the lava: ropes snap, it falls. Returns the falling surface. */
+  breakPlatform(id: string): THREE.Group | null {
+    const p = this.platforms.get(id);
+    if (!p) return null;
+    p.broken = true;
+    p.ropes.forEach((r) => (r.visible = false));
+    return p.surface;
   }
 
   /** World position of the top centre of a platform. */
@@ -285,24 +285,24 @@ export class MobileView {
     return out.setFromMatrixPosition(p.surface.matrixWorld);
   }
 
-  /** Local (surface space) position of a slot on a platform. */
-  slotLocal(id: string, slot: number): THREE.Vector3 {
-    const p = this.platforms.get(id)!;
-    return new THREE.Vector3(slotX(p.node.capacity, slot), 0, 0.05);
-  }
-
   /** Bounding box of the structure (at rest), for camera framing. */
   bounds() {
     const l = this.layout.get(this.root.id)!;
-    return {
-      minX: -l.left - 0.55,
-      maxX: l.right + 0.55,
-      minY: this.bottomY,
-      maxY: this.ceilingY + 0.3,
-    };
+    return { minX: -l.left - 0.55, maxX: l.right + 0.55, maxY: CLOUD_TOP + 2.2 };
   }
 }
 
-export function slotX(capacity: number, slot: number) {
-  return (slot - (capacity - 1) / 2) * SLOT_W;
+/**
+ * Local x of each Tottler on a platform: packed side by side, centred, each taking its
+ * real width (weight + 1 width units).
+ */
+export function packPositions(weights: (1 | 2 | 3)[]): number[] {
+  const widths = weights.map((w) => tottlerWidth(w) * WIDTH_UNIT);
+  const total = widths.reduce((s, x) => s + x, 0);
+  let x = -total / 2;
+  return widths.map((wd) => {
+    const c = x + wd / 2;
+    x += wd;
+    return c;
+  });
 }
