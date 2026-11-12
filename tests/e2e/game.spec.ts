@@ -70,8 +70,8 @@ test('overloading one side dumps everyone on it (snowball) and costs stars', asy
 });
 
 test('a platform that touches the lava breaks and loses the level', async ({ page }) => {
-  // Level 4: two Tottlers in a row on the small left platform sink it into the lava.
-  await page.evaluate(() => window.__tottle.load(4));
+  // Level 17: two Tottlers in a row on the far-left small platform sink it into the lava.
+  await page.evaluate(() => window.__tottle.load(17));
   await waitIdle(page);
   for (let i = 0; i < 2; i++) {
     await page.evaluate(() => window.__tottle.tap('p0'));
@@ -88,14 +88,14 @@ test('a platform that touches the lava breaks and loses the level', async ({ pag
 test('every level can be finished with 3 stars in the browser', async ({ page }) => {
   test.setTimeout(240_000);
   await page.evaluate(() => window.__tottle.speed(6));
-  for (let n = 1; n <= 15; n++) {
+  for (let n = 1; n <= 20; n++) {
     await page.evaluate((k) => window.__tottle.load(k), n);
     await waitIdle(page);
     await playWithHints(page);
     await expect(page.getByTestId('result-stars')).toHaveAttribute('data-stars', '3');
-    if (n === 8 || n === 15) await page.screenshot({ path: `test-results/level${n}-done.png` });
+    if (n === 10 || n === 20) await page.screenshot({ path: `test-results/level${n}-done.png` });
   }
-  expect((await state(page)).progress.level).toBe(15);
+  expect((await state(page)).progress.level).toBe(20);
 });
 
 test('endless mode runs rounds and ends after 10 falls or lava', async ({ page }) => {

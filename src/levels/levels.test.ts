@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { LEVELS } from './levels';
 import { endlessLevel } from './endless';
 import { solveLevel } from '../core/solver';
+import { myopicRate } from '../core/difficulty';
 import { createGame, place } from '../core/game';
 import { depthOf, validateStructure } from '../core/structure';
 
 describe('hand-made levels', () => {
-  it('has 15 levels', () => expect(LEVELS).toHaveLength(15));
+  it('has 20 levels', () => expect(LEVELS).toHaveLength(20));
 
   for (const lv of LEVELS) {
     it(`level ${lv.id} is valid and can be finished with 3 stars`, () => {
@@ -51,5 +52,32 @@ describe('endless mode', () => {
       expect(a).toEqual(b);
       expect(solveLevel(a)).not.toBeNull();
     }
+  });
+});
+
+describe('difficulty curve', () => {
+  // Every 5th level is a hard one, every 10th a very hard one; the others stay easy / medium.
+  const rates = LEVELS.map((lv) => myopicRate(lv));
+
+  it('each block of 5 ends with its hardest level', () => {
+    for (let end = 5; end <= LEVELS.length; end += 5) {
+      const block = rates.slice(end - 5, end - 1);
+      expect(rates[end - 1], `level ${end}`).toBeLessThan(Math.min(...block));
+      expect(rates[end - 1], `level ${end} should be hard`).toBeLessThanOrEqual(0.2);
+    }
+  });
+
+  it('levels 10 and 20 are very hard: the hardest of their 10 and < 5% for a myopic player', () => {
+    for (let end = 10; end <= LEVELS.length; end += 10) {
+      const others = rates.slice(end - 10, end - 1);
+      expect(rates[end - 1]).toBeLessThan(Math.min(...others));
+      expect(rates[end - 1]).toBeLessThan(0.05);
+    }
+  });
+
+  it('regular levels are not hard', () => {
+    rates.forEach((r, i) => {
+      if ((i + 1) % 5 !== 0) expect(r, `level ${i + 1}`).toBeGreaterThan(0.2);
+    });
   });
 });

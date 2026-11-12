@@ -41,7 +41,7 @@ Goal: place everyone, drop as few as possible. Audience 18–70, casual, 30–90
   No time limit anywhere.
 - Platforms hang straight under their hook and tilt with their beam; sub-beams hang freely.
 - Tutorial (levels 1–3): a hand points at the solver's suggested platform every turn.
-- Endless mode (unlocked after level 3, default once all 15 are done): generated rounds
+- Endless mode (unlocked after level 3, default once all 20 are done): generated rounds
   (always 3★-solvable, lava set by the solver + slack shrinking over time). Falls add up across
   rounds; 10 falls or lava = game over; a Perfect round forgives one fall.
   Score = Tottlers placed without any fall. Best score saved.
@@ -60,10 +60,11 @@ Later: Capacitor (iOS/Android) + AdMob.
 - `src/core/` pure logic, **no three/rapier imports** (ESLint enforces it):
   `types`, `structure`, `balance` (torque, widths), `geometry` (layout, platform heights, lava),
   `game` (place/settle), `score`, `solver` (3-star solver, hint, solution count),
+  `difficulty` (seeded `myopicRate`: share of short-sighted players who get 3★),
   `progress` (save/load).
 - `src/levels/` `builder` (tiny DSL `B(tol, left, right, ll, rl)` / `P(S|M|L)`,
   `level(id, draft, queue, lavaGap, tutorial)`),
-  `levels.ts` (15 hand-made levels), `endless.ts` (seeded generator).
+  `levels.ts` (20 hand-made levels), `endless.ts` (seeded generator).
 - `src/render/` `stage` (renderer, camera framing, lights, lava), `mobile` (cloud, beams,
   platforms + spring tilt, heat glow), `tottler` (procedural stickman, shared
   geometries), `materials` (palette, toon ramp, canvas textures).
@@ -76,6 +77,10 @@ Later: Capacitor (iOS/Android) + AdMob.
 ## Conventions
 
 - Every level must be 3-star solvable: `src/levels/levels.test.ts` runs the solver on each.
+- **Difficulty curve** (user request): levels alternate easy/medium and slowly ramp up;
+  every 5th level is HARD, every 10th VERY HARD. Tested with `myopicRate`: level 5k is the
+  hardest of its block of 5 and ≤ 20 %; level 10k the hardest of its 10 and < 5 %;
+  regular levels > 20 %.
   Use `npx vite-node scripts/analyze-levels.ts` / `scripts/tune-levels.ts` to measure difficulty.
 - Test in the browser with Playwright at 390×844 and look at screenshots before calling a UI change done.
 - Performance target 60 fps on mid Android: shared geometries/materials, few lights, one shadow map.
