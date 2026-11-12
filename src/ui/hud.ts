@@ -28,6 +28,7 @@ export interface HudCallbacks {
 
 export interface ResultInfo {
   won: boolean;
+  level: number;
   reason?: 'falls' | 'lava';
   stars: number;
   falls: number;
@@ -70,7 +71,7 @@ export class Hud {
           <div class="level-tag" data-testid="start-level"></div>
           <div class="play-row">
             <button class="side-btn" data-act="endless" aria-label="Endless mode">${SVG.infinity}</button>
-            <button class="play-btn" data-act="play" data-testid="play" aria-label="Play">${SVG.play}</button>
+            <button class="play-btn" data-act="play" data-testid="play" aria-label="Play">${SVG.play}<span class="btn-label">Play</span></button>
             <button class="side-btn" data-act="sound2" aria-label="Sound"></button>
           </div>
         </div>
@@ -156,19 +157,22 @@ export class Hud {
 
   showResult(r: ResultInfo, onStar: (i: number) => void) {
     const card = this.result.querySelector('.card')!;
+    const retry = (main: boolean) =>
+      `<button class="${main ? 'big-btn' : 'big-btn ghost'}" data-act="retry" data-testid="retry" aria-label="Retry">${SVG.retry}<span>Retry</span></button>`;
     if (r.won) {
       let stars = '';
       for (let i = 0; i < 3; i++) stars += SVG.star(i < r.stars ? '#ffc93c' : '#e8e4f3');
       card.innerHTML = `
+        <h2 data-testid="result-title">Level ${r.level}<br><small>Complete!</small></h2>
         <div class="big-stars" data-testid="result-stars" data-stars="${r.stars}">${stars}</div>
         ${r.perfect ? '<div class="perfect" data-testid="perfect">PERFECT!</div>' : ''}
         <div class="stat">${SVG.fallen}<span data-testid="falls">${r.falls}</span></div>
         <div class="card-btns">
-          <button class="side-btn" data-act="retry" aria-label="Retry">${SVG.retry}</button>
+          ${retry(false)}
           ${
             r.isLast
-              ? `<button class="play-btn" data-act="home" data-testid="next" aria-label="Continue">${SVG.play}</button>`
-              : `<button class="play-btn" data-act="next" data-testid="next" aria-label="Next level">${SVG.play}</button>`
+              ? `<button class="big-btn" data-act="home" data-testid="next" aria-label="Continue">${SVG.play}<span>Continue</span></button>`
+              : `<button class="big-btn" data-act="next" data-testid="next" aria-label="Next level">${SVG.play}<span>Next</span></button>`
           }
         </div>`;
       const els = card.querySelectorAll('.big-stars .star');
@@ -181,12 +185,11 @@ export class Hud {
         }
       });
     } else {
-      const icon = r.reason === 'lava' ? SVG.lava : SVG.fallen;
+      const lava = r.reason === 'lava';
       card.innerHTML = `
-        <div class="stat big-icon" data-testid="fail-${r.reason ?? 'falls'}" style="font-size:40px">${icon}<span data-testid="falls">${r.reason === 'lava' ? '' : r.falls}</span></div>
-        <div class="card-btns">
-          <button class="play-btn" data-act="retry" data-testid="retry" aria-label="Retry" style="background:var(--orange)!important;box-shadow:0 7px 0 #d68a10">${SVG.retry}</button>
-        </div>`;
+        <h2 class="lost" data-testid="result-title">Game Over</h2>
+        <div class="stat big-icon" data-testid="fail-${r.reason ?? 'falls'}">${lava ? SVG.lava : SVG.fallen}<span data-testid="falls">${lava ? 'Lava!' : `${r.falls}/10`}</span></div>
+        <div class="card-btns">${retry(true)}</div>`;
     }
     this.result.classList.remove('hidden');
     this.top.classList.add('hidden');
@@ -196,12 +199,13 @@ export class Hud {
   showEndlessOver(score: number, best: number, isBest: boolean) {
     const card = this.result.querySelector('.card')!;
     card.innerHTML = `
-      <div class="stat" style="font-size:44px">${SVG.tottler}<span data-testid="score">${score}</span></div>
-      ${isBest ? '<div class="perfect">BEST!</div>' : ''}
-      <div class="stat">${SVG.trophy}<span>${best}</span></div>
+      <h2 class="lost" data-testid="result-title">Game Over</h2>
+      <div class="stat score-line">Score<span data-testid="score">${score}</span></div>
+      ${isBest ? '<div class="perfect">NEW BEST!</div>' : ''}
+      <div class="stat">${SVG.trophy}<span>Best ${best}</span></div>
       <div class="card-btns">
-        <button class="side-btn" data-act="home" aria-label="Home">${SVG.home}</button>
-        <button class="play-btn" data-act="retry" data-testid="retry" aria-label="Play again">${SVG.retry}</button>
+        <button class="big-btn ghost" data-act="home" aria-label="Home">${SVG.home}<span>Home</span></button>
+        <button class="big-btn" data-act="retry" data-testid="retry" aria-label="Play again">${SVG.retry}<span>Retry</span></button>
       </div>`;
     this.result.classList.remove('hidden');
     this.top.classList.add('hidden');

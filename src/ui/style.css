@@ -444,3 +444,71 @@ body {
   width: 64px;
   height: 64px;
 }
+
+.card h2 {
+  text-align: center;
+  line-height: 1.05;
+  color: var(--violet-dark);
+}
+.card h2 small {
+  font-size: 22px;
+  color: var(--green);
+}
+.card h2.lost {
+  font-size: 36px;
+  color: var(--pink);
+}
+.big-btn {
+  min-width: 128px;
+  height: 64px;
+  border-radius: 999px;
+  padding: 0 20px;
+  background: var(--green) !important;
+  color: #fff !important;
+  font-weight: 900 !important;
+  font-size: 22px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 6px 0 #2a9e70;
+}
+.big-btn svg {
+  width: 26px;
+  height: 26px;
+}
+.big-btn.ghost {
+  background: #f1eefb !important;
+  color: var(--ink) !important;
+  box-shadow: 0 6px 0 #d5cfee;
+}
+.big-btn:active {
+  transform: translateY(4px);
+  box-shadow: none;
+}
+.card-btns {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.score-line {
+  font-size: 28px;
+  gap: 12px;
+}
+.score-line span {
+  font-size: 48px;
+}
+.play-btn {
+  position: relative;
+}
+.btn-label {
+  position: absolute;
+  bottom: -40px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-weight: 900;
+  font-size: 22px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 999px;
+  padding: 2px 14px;
+}

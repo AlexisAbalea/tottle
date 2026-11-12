@@ -585,6 +585,7 @@ export class App {
     this.hud.showResult(
       {
         won,
+        level: this.levelIndex + 1,
         reason: end.reason,
         stars: end.stars,
         falls: end.falls,
