@@ -27,6 +27,10 @@ Goal: place everyone, drop as few as possible. Audience 18–70, casual, 30–90
   The platform underside glows as the lava gets close; Tottlers wave their arms.
   The geometry is in `core/geometry.ts` and used by both rules and renderer.
   Levels guarantee that no first move can burn a platform (test).
+- **Fairness (playtest feedback)**: a lone Tottler on an empty mobile never tips a beam —
+  every beam's tolerance ≥ heaviest weight in the queue × its longest arm
+  (`loneTottlerSafe`, tested; the tuner and endless generator apply `fair()`).
+  Difficulty must come from accumulation and planning, never from a first-move trap.
 - Stars: each fall costs a star — 0 falls 3★, 1 fall 2★, 2–9 falls 1★; **10 falls = lost**.
   **Perfect** = root beam exactly level at the end.
 - Rapier physics is **only** the show (tumbling falls, sinking in lava, breaking platform).

@@ -1,7 +1,7 @@
 // Searches queues + lava distance for each level structure so that it hits a target difficulty.
 // Difficulty = myopicRate (share of "myopic" players who get 3 stars, see core/difficulty.ts).
 // Run: npx vite-node scripts/tune-levels.ts [levelName ...]
-import { B, L, M, P, S, build } from '../src/levels/builder';
+import { B, L, M, P, S, build, dsl, fair } from '../src/levels/builder';
 import type { LevelDef, Weight } from '../src/core/types';
 import { solveLevel, countSolutions } from '../src/core/solver';
 import { createGame, place } from '../src/core/game';
@@ -181,8 +181,13 @@ const firstMoveBurns = (lv: LevelDef) => {
 const only = process.argv.slice(2);
 for (const s of specs) {
   if (only.length && !only.includes(s.name)) continue;
-  const root = build(s.draft);
-  let best: { q: Weight[]; m: number; gap: number } | null = null;
+  let best: {
+    q: Weight[];
+    m: number;
+    gap: number;
+    draft: string;
+    root: ReturnType<typeof build>;
+  } | null = null;
   const tries = s.tries ?? 400;
   for (let t = 0; t < tries; t++) {
     const total = s.mix[0] + s.mix[1] + s.mix[2];
@@ -192,6 +197,9 @@ for (const s of specs) {
     });
     if (s.min3 && queue.filter((w) => w === 3).length < s.min3) continue;
     if (Number(s.name) >= 4 && queue.filter((w) => w === 1).length > s.len / 2) continue;
+    // fairness: a lone Tottler never tips a beam
+    const draft = fair(s.draft, Math.max(...queue));
+    const root = build(draft);
     if (!solveLevel({ id: s.name, root, queue, lavaGap: 5 })) continue;
     let lo = 0;
     let hi = 5;
@@ -206,19 +214,21 @@ for (const s of specs) {
     const lv: LevelDef = { id: s.name, root, queue, lavaGap: gap };
     if (!solveLevel(lv)) continue;
     const m = myopicRate(lv, 120, t + 1);
-    if (!best || Math.abs(m - s.target) < Math.abs(best.m - s.target)) best = { q: queue, m, gap };
+    if (!best || Math.abs(m - s.target) < Math.abs(best.m - s.target))
+      best = { q: queue, m, gap, draft: dsl(draft), root };
     if (Math.abs(m - s.target) < 0.03) break;
   }
   if (!best) {
     console.log(s.name, 'no solvable queue');
     continue;
   }
+  const root = best.root;
   const lv = { id: s.name, root, queue: best.q, lavaGap: best.gap };
   const poses = platformPoses(root, computeLayout(root), {}, {});
   const xs = Object.values(poses);
   const span =
     Math.max(...xs.map((p) => p.x + p.width / 2)) - Math.min(...xs.map((p) => p.x - p.width / 2));
   console.log(
-    `L${s.name}: '${best.q.join(' ')}' lava=${best.gap} rate=${(myopicRate(lv) * 100).toFixed(1)}% sols=${countSolutions(lv)} width=${span.toFixed(1)}`,
+    `L${s.name}: ${best.draft} '${best.q.join(' ')}' lava=${best.gap} rate=${(myopicRate(lv) * 100).toFixed(1)}% sols=${countSolutions(lv)} width=${span.toFixed(1)}`,
   );
 }

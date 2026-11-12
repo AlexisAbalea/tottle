@@ -70,8 +70,8 @@ test('overloading one side dumps everyone on it (snowball) and costs stars', asy
 });
 
 test('a platform that touches the lava breaks and loses the level', async ({ page }) => {
-  // Level 17: two Tottlers in a row on the far-left small platform sink it into the lava.
-  await page.evaluate(() => window.__tottle.load(17));
+  // Level 7: two Tottlers in a row on the far-left small platform sink it into the lava.
+  await page.evaluate(() => window.__tottle.load(7));
   await waitIdle(page);
   for (let i = 0; i < 2; i++) {
     await page.evaluate(() => window.__tottle.tap('p0'));

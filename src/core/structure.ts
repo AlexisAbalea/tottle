@@ -75,3 +75,16 @@ export function validateStructure(root: BeamNode) {
   });
   if (depthOf(root) > 3) throw new Error('Structure deeper than 3 beam levels');
 }
+
+/**
+ * Fairness rule for level design: a single Tottler of weight `maxWeight` placed anywhere on an
+ * empty mobile never tips a beam (tolerance ≥ weight × longest arm, for every beam).
+ */
+export function loneTottlerSafe(root: BeamNode, maxWeight: number): boolean {
+  let ok = true;
+  walk(root, (n) => {
+    if (n.kind === 'beam' && n.tolerance < maxWeight * Math.max(n.left.length, n.right.length))
+      ok = false;
+  });
+  return ok;
+}

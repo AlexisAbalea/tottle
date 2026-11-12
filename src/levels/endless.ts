@@ -1,6 +1,6 @@
 import type { LevelDef, Weight } from '../core/types';
 import { solveLevel } from '../core/solver';
-import { B, L, M, P, S, build } from './builder';
+import { B, L, M, P, S, build, fair } from './builder';
 
 /** Small deterministic RNG (mulberry32). */
 export function rng(seed: number) {
@@ -38,13 +38,13 @@ export function endlessLevel(seed: number, round: number): LevelDef {
   const minT = Math.max(0, maxT - 3);
   for (let attempt = 0; attempt < 100; attempt++) {
     const t = minT + Math.floor(r() * (maxT - minT + 1));
-    const root = build(TEMPLATES[t]());
     const len = Math.min(11, 5 + Math.floor(round / 2) + Math.floor(r() * 3));
     const heavy = Math.min(0.25, 0.1 + round * 0.02);
     const queue: Weight[] = Array.from({ length: len }, () => {
       const x = r();
       return (x < heavy ? 3 : x < 0.55 ? 2 : 1) as Weight;
     });
+    const root = build(fair(TEMPLATES[t](), Math.max(...queue)));
     if (!solveLevel({ id: 'x', root, queue, lavaGap: 5 })) continue;
     // lava: smallest safe distance + slack that shrinks over the run
     let lo = 0;
