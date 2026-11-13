@@ -1,0 +1,83 @@
+name: Test & deploy (main + branch previews)
+
+# main             → https://alexisabalea.github.io/tottle/
+# any other branch → https://alexisabalea.github.io/tottle/preview/<branch>/   ("/" → "-")
+# Deleting a branch removes its preview.
+# Repo setting: Settings → Pages → Source = "Deploy from a branch", branch gh-pages, folder / (root).
+
+on:
+  push:
+    branches: ['**']
+  delete:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# one writer at a time on gh-pages; never cancel a deploy halfway
+concurrency:
+  group: gh-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # claude/* is the session's mirror of main: no preview needed
+    if: github.event_name != 'delete' && !startsWith(github.ref_name, 'claude/') && github.ref_name != 'gh-pages'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+      - name: Where to publish
+        id: dest
+        run: |
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            echo "dir=." >> "$GITHUB_OUTPUT"
+            echo "url=https://alexisabalea.github.io/tottle/" >> "$GITHUB_OUTPUT"
+          else
+            slug=$(echo "$GITHUB_REF_NAME" | tr '/' '-' | tr -cd 'A-Za-z0-9._-')
+            echo "dir=preview/$slug" >> "$GITHUB_OUTPUT"
+            echo "url=https://alexisabalea.github.io/tottle/preview/$slug/" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: gh-pages
+          destination_dir: ${{ steps.dest.outputs.dir }}
+          # keep main and the other branches' previews when publishing one of them
+          keep_files: true
+          commit_message: 'Deploy ${{ github.ref_name }} @ ${{ github.sha }}'
+
+      - name: Link
+        run: echo "### Published → ${{ steps.dest.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
+
+  remove-preview:
+    if: github.event_name == 'delete' && github.event.ref_type == 'branch' && github.event.ref != 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+      - name: Delete preview folder
+        env:
+          BRANCH: ${{ github.event.ref }}
+        run: |
+          slug=$(echo "$BRANCH" | tr '/' '-' | tr -cd 'A-Za-z0-9._-')
+          if [ -d "preview/$slug" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+            git rm -rq "preview/$slug"
+            git commit -m "Remove preview $slug"
+            git push
+          else
+            echo "No preview for $slug"
+          fi

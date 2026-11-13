@@ -91,5 +91,10 @@ Later: Capacitor (iOS/Android) + AdMob.
   Use `npx vite-node scripts/analyze-levels.ts` / `scripts/tune-levels.ts` to measure difficulty.
 - Test in the browser with Playwright at 390×844 and look at screenshots before calling a UI change done.
 - Performance target 60 fps on mid Android: shared geometries/materials, few lights, one shadow map.
-- Push to `main` (user's choice); GitHub Pages deploys from `.github/workflows/deploy.yml`.
+- Push to `main` (user's choice) → live site. Risky features go on a branch
+  (`feature/<name>`) → preview at `https://alexisabalea.github.io/tottle/preview/feature-<name>/`
+  (`/` becomes `-`); give the user that link. `.github/workflows/pages.yml` publishes to the
+  `gh-pages` branch (Pages source = gh-pages / root); deleting a branch removes its preview.
+  `claude/*` branches are mirrors of main and get no preview. Previews use their own save key
+  (`storageKeyFor`).
 - Ambiguous rule → pick the simplest, most readable option for a 60-year-old, note it here.

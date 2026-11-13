@@ -17,8 +17,12 @@ import {
   recordEndless,
   recordLevel,
   saveProgress,
+  storageKeyFor,
   type Progress,
 } from './core/progress';
+
+/** Save slot: the main site, or a separate one per branch preview. */
+const SAVE_KEY = storageKeyFor(location.pathname);
 import { LEVELS } from './levels/levels';
 import { endlessLevel } from './levels/endless';
 import { Stage } from './render/stage';
@@ -110,7 +114,7 @@ export class App {
 
   constructor(canvas: HTMLCanvasElement, hudRoot: HTMLElement) {
     this.stage = new Stage(canvas);
-    this.progress = loadProgress(safeStorage());
+    this.progress = loadProgress(safeStorage(), SAVE_KEY);
     this.sound.muted = this.progress.muted;
     this.stage.scene.add(this.world, this.particles.mesh);
     const padGeo = new THREE.CylinderGeometry(0.62, 0.7, 0.12, 28);
@@ -153,7 +157,7 @@ export class App {
           this.sound.unlock();
           this.sound.muted = !this.sound.muted;
           this.progress = { ...this.progress, muted: this.sound.muted };
-          saveProgress(safeStorage(), this.progress);
+          saveProgress(safeStorage(), this.progress, SAVE_KEY);
           this.sound.button();
           return this.sound.muted;
         },
@@ -589,7 +593,7 @@ export class App {
       this.particles.confetti(center, end.perfect ? 160 : 60, end.perfect ? 1.4 : 0.8);
       if (end.perfect) setTimeout(() => this.sound.perfect(), 350);
       this.progress = recordLevel(this.progress, this.levelIndex, end.perfect, LEVELS.length);
-      saveProgress(safeStorage(), this.progress);
+      saveProgress(safeStorage(), this.progress, SAVE_KEY);
     } else if (end.reason !== 'lava') {
       this.sound.fail();
       vibrate([60, 60, 60]);
@@ -643,7 +647,7 @@ export class App {
     const score = this.endless.score;
     const isBest = score > this.progress.endlessBest;
     this.progress = recordEndless(this.progress, score);
-    saveProgress(safeStorage(), this.progress);
+    saveProgress(safeStorage(), this.progress, SAVE_KEY);
     await this.timers.wait(0.8);
     if (gen !== this.generation) return;
     this.hud.showEndlessOver(score, this.progress.endlessBest, isBest);

@@ -17,14 +17,23 @@ export interface KeyValueStore {
 
 export const STORAGE_KEY = 'tottle.progress.v1';
 
+/**
+ * Branch previews live on the same domain (…/tottle/preview/<branch>/), so each one gets its
+ * own save; the main site keeps the plain key.
+ */
+export function storageKeyFor(pathname: string): string {
+  const m = /\/preview\/([^/]+)/.exec(pathname);
+  return m ? `${STORAGE_KEY}.preview.${m[1]}` : STORAGE_KEY;
+}
+
 export function defaultProgress(): Progress {
   return { version: 1, level: 0, completed: [], perfect: [], endlessBest: 0, muted: false };
 }
 
-export function loadProgress(store: KeyValueStore | null | undefined): Progress {
+export function loadProgress(store: KeyValueStore | null | undefined, key = STORAGE_KEY): Progress {
   const base = defaultProgress();
   try {
-    const raw = store?.getItem(STORAGE_KEY);
+    const raw = store?.getItem(key);
     if (!raw) return base;
     const p = JSON.parse(raw) as Partial<Progress> & { stars?: number[] };
     if (p.version !== 1) return base;
@@ -46,9 +55,13 @@ export function loadProgress(store: KeyValueStore | null | undefined): Progress 
   }
 }
 
-export function saveProgress(store: KeyValueStore | null | undefined, p: Progress) {
+export function saveProgress(
+  store: KeyValueStore | null | undefined,
+  p: Progress,
+  key = STORAGE_KEY,
+) {
   try {
-    store?.setItem(STORAGE_KEY, JSON.stringify(p));
+    store?.setItem(key, JSON.stringify(p));
   } catch {
     // Private mode or full storage: progress just won't persist.
   }

@@ -31,11 +31,21 @@ npx vite-node scripts/analyze-levels.ts   # solvable? number of solutions, rando
 npx vite-node scripts/tune-levels.ts      # search queues for a target difficulty
 ```
 
-## Deploy
+## Deploy & branch previews
 
-Every push to `main` runs lint + tests, builds, and publishes `dist/` to GitHub Pages
-(`.github/workflows/deploy.yml`). One-time setup: in the repo **Settings → Pages → Build and
-deployment → Source**, choose **GitHub Actions**.
+Every push runs lint + unit tests + build (`.github/workflows/pages.yml`), then publishes to the
+`gh-pages` branch:
+
+| Push to                                    | Published at                                                     |
+| ------------------------------------------ | ---------------------------------------------------------------- |
+| `main`                                     | https://alexisabalea.github.io/tottle/                           |
+| any other branch, e.g. `feature/new-thing` | https://alexisabalea.github.io/tottle/preview/feature-new-thing/ |
+
+Deleting a branch removes its preview. Each preview has its own save, so testing a branch never
+touches the progress of the main site. The link is also shown in the run summary on the Actions tab.
+
+One-time setup: **Settings → Pages → Build and deployment → Source: "Deploy from a branch"**,
+branch `gh-pages`, folder `/ (root)`.
 
 ## Project layout
 

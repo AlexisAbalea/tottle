@@ -6,6 +6,7 @@ import {
   recordEndless,
   recordLevel,
   saveProgress,
+  storageKeyFor,
 } from './progress';
 
 function memStore() {
@@ -47,5 +48,12 @@ describe('progress', () => {
     p = recordLevel(p, 19, false, 20);
     expect(p.level).toBe(20);
     expect(p.completed[5]).toBe(false);
+  });
+
+  it('gives each branch preview its own save', () => {
+    expect(storageKeyFor('/tottle/')).toBe(STORAGE_KEY);
+    expect(storageKeyFor('/tottle/preview/new-feature/')).toBe(
+      `${STORAGE_KEY}.preview.new-feature`,
+    );
   });
 });
