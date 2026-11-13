@@ -74,6 +74,7 @@ export class Hud {
       </div>
       <div class="overlay dim hidden" data-testid="result"><div class="card"></div></div>
       <div class="hand" data-testid="hand">${SVG.hand}</div>
+      <div class="countdown hidden" data-testid="countdown"><svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="42"/><circle class="bar" cx="50" cy="50" r="42"/></svg><span></span></div>
     `;
     this.top = root.querySelector('.topbar')!;
     this.levelPill = root.querySelector('[data-testid=level-pill]')!;
@@ -196,7 +197,51 @@ export class Hud {
   }
 
   hideHand() {
-    this.hand.classList.remove('show');
+    this.hand.classList.remove('show', 'drag');
+    this.dragAnim?.cancel();
+    this.dragAnim = null;
+    this.dragKey = '';
+  }
+
+  private dragAnim: Animation | null = null;
+  private dragKey = '';
+  /** Tutorial: the hand picks the Tottler up at `from` and drops it at `to`, in a loop. */
+  showDragHint(from: { x: number; y: number }, to: { x: number; y: number }) {
+    const key = [from.x, from.y, to.x, to.y].map((v) => Math.round(v / 8)).join(',');
+    if (key === this.dragKey) return;
+    this.dragKey = key;
+    this.dragAnim?.cancel();
+    this.hand.classList.add('show', 'drag');
+    this.hand.style.left = '0px';
+    this.hand.style.top = '0px';
+    const at = (p: { x: number; y: number }, s: number) =>
+      `translate(${p.x}px, ${p.y}px) scale(${s})`;
+    this.dragAnim = this.hand.animate(
+      [
+        { transform: at(from, 1), opacity: 0, offset: 0 },
+        { transform: at(from, 1), opacity: 1, offset: 0.12 },
+        { transform: at(from, 0.88), opacity: 1, offset: 0.22 },
+        { transform: at(to, 0.88), opacity: 1, offset: 0.7 },
+        { transform: at(to, 1), opacity: 1, offset: 0.8 },
+        { transform: at(to, 1), opacity: 0, offset: 1 },
+      ],
+      { duration: 2200, iterations: Infinity, easing: 'ease-in-out' },
+    );
+  }
+
+  /** Win countdown after the last drop: seconds left (null hides it). */
+  setCountdown(left: number | null, total = 3) {
+    const el = this.root.querySelector('[data-testid=countdown]') as HTMLElement;
+    if (left === null) {
+      el.classList.add('hidden');
+      return;
+    }
+    el.classList.remove('hidden');
+    (el.querySelector('span') as HTMLElement).textContent = String(Math.max(1, Math.ceil(left)));
+    const bar = el.querySelector('.bar') as SVGCircleElement;
+    const len = 2 * Math.PI * 42;
+    bar.style.strokeDasharray = `${len}`;
+    bar.style.strokeDashoffset = `${len * (1 - Math.max(0, left) / total)}`;
   }
 
   ripple(x: number, y: number) {

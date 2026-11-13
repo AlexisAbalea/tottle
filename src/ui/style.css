@@ -524,3 +524,67 @@ body {
 .big-trophy.pop {
   animation: pop 0.5s 0.15s cubic-bezier(0.3, 1.8, 0.5, 1) both;
 }
+
+.hand.drag {
+  animation: none;
+  margin-left: -10px;
+  margin-top: -6px;
+}
+.countdown {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--safe-top) + 120px);
+  width: 96px;
+  height: 96px;
+  margin-left: -48px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.countdown.hidden {
+  opacity: 0;
+}
+.countdown svg {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+}
+.countdown .track {
+  fill: rgba(255, 255, 255, 0.9);
+  stroke: rgba(43, 35, 64, 0.12);
+  stroke-width: 8;
+}
+.countdown .bar {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.1s linear;
+}
+.countdown span {
+  position: relative;
+  font-size: 48px;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+#loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+#loading .spinner {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 7px solid rgba(255, 255, 255, 0.6);
+  border-top-color: var(--violet);
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

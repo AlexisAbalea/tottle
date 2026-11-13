@@ -19,8 +19,14 @@ export const MIN_ARM_SCALE = 0.85;
 export const MAX_TILT = (18 * Math.PI) / 180;
 export const DEFAULT_LAVA_GAP = 1.2;
 
+/**
+ * Physics branch: real Tottlers never pack perfectly side by side, so platforms get some
+ * slack over the exact sum of widths their size allows.
+ */
+export const PLATFORM_ROOM = 1.4;
+
 export function platformWorldWidth(size: number) {
-  return size * WIDTH_UNIT + PLATFORM_PAD * 2;
+  return size * WIDTH_UNIT * PLATFORM_ROOM + PLATFORM_PAD * 2;
 }
 
 export interface NodeLayout {

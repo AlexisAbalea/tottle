@@ -201,7 +201,12 @@ describe('game flow', () => {
   });
 
   it('flags Perfect when the main beam is level at the end', () => {
-    const lv: LevelDef = { id: 'x', root: beam('r', 2, P('L'), P('R')), queue: [2, 1, 1] };
+    const lv: LevelDef = {
+      id: 'x',
+      root: beam('r', 2, P('L'), P('R')),
+      queue: [2, 1, 1],
+      lavaGap: 50,
+    };
     let g = createGame(lv);
     g = place(g, 'L').state;
     g = place(g, 'R').state;
