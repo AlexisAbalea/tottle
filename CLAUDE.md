@@ -5,6 +5,31 @@ Mobile 3D balance puzzle. Hanging mobile of beams carries platforms; little stic
 Goal: place everyone, drop as few as possible. Audience 18–70, casual, 30–90 s levels,
 **no text needed to play** (rare UI text in English). Ads later (rewarded + interstitial).
 
+## Branch `feature/physics` — gameplay v3 (experiment, user request)
+
+On this branch the Tottlers are **real physics** (Rapier), not computed rules:
+
+- **Drag & drop**: press anywhere → the next Tottler is picked up and hovers just above
+  whatever is under the finger (x follows the finger), with a guide line and a landing ring
+  (red = only lava below). Let go → it drops. Letting go back over the cloud cancels.
+- Mobile = Rapier bodies (`src/sim/sim.ts`): beams with a torsion spring on their **absolute**
+  angle (an imbalance equal to the beam's tolerance tilts it 18°; sub-beams hang from gravity,
+  they don't follow their parent); platforms swing from their hook with a softer spring (a big
+  Tottler at the edge tilts it ~15°); Tottlers are upright capsules (mass = weight), slippery
+  on each other (0.05) and grippy on trays (0.75): a newcomer between two same-size Tottlers
+  pushes them aside, a small one can rest on two big ones' heads.
+- Locked axes on jointed bodies made Rapier explode → only Tottlers are axis-locked.
+- Platforms are 1.4× wider than the rule model (`PLATFORM_ROOM`): real packing needs slack.
+- **Win**: everyone placed + nothing touches the lava for **3 s** (countdown ring).
+  **Lose**: any Tottler or platform touches the lava.
+- Level lava distances re-derived with physics (`scripts/physics-lava.ts`); tests
+  (`src/sim/sim.test.ts`) check behaviours and that a **bot** (beam search with real physics,
+  `src/sim/bot.ts`) wins every level and that no single first drop reaches the lava.
+- Old rule engine (`core/game`, `solver`, `difficulty`) is unused by the app here; the difficulty
+  curve is not re-measured for physics yet. Endless rounds are generated with the old solver
+  (not physics-verified).
+- Preview: https://alexisabalea.github.io/tottle/preview/feature-physics/
+
 ## Rules (v2 — after first playtest)
 
 - Structure: root beam hangs from a cloud. Each arm end holds a **platform** or a

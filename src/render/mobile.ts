@@ -269,6 +269,46 @@ export class MobileView {
     }
   }
 
+  /**
+   * Physics mode: place everything where the simulation says (no springs here — the
+   * simulation already animates the mobile).
+   */
+  sync(
+    beams: Record<string, { x: number; y: number; angle: number; hookX: number; hookY: number }>,
+    platforms: Record<string, PlatformPose>,
+  ) {
+    for (const b of this.beams) {
+      const st = beams[b.node.id];
+      b.angle = st.angle;
+      b.group.position.set(st.x, st.y, 0);
+      b.group.rotation.z = st.angle;
+      const top =
+        b.node === this.root
+          ? new THREE.Vector3(0, CEILING_Y, 0)
+          : new THREE.Vector3(st.hookX, st.hookY, 0);
+      setRope(b.rope, new THREE.Vector3(st.x, st.y, 0), top);
+    }
+    for (const [id, p] of this.platforms) {
+      const pose = platforms[id];
+      p.pose = pose;
+      p.surface.position.set(pose.x, pose.y, 0);
+      p.surface.rotation.z = pose.angle;
+      p.surface.scale.setScalar(1 + p.highlight * 0.04);
+      const hook = new THREE.Vector3(pose.hookX, pose.hookY, 0);
+      const c0 = Math.cos(pose.angle);
+      const s0 = Math.sin(pose.angle);
+      const hw = p.width / 2 - 0.06;
+      for (const [i, sx] of [
+        [0, -1],
+        [1, 1],
+      ] as const) {
+        const corner = new THREE.Vector3(pose.x + sx * hw * c0, pose.y + sx * hw * s0, 0);
+        setRope(p.ropes[i], corner, hook);
+      }
+      p.heatMat.emissiveIntensity = this.heat(id) * 1.4;
+    }
+  }
+
   /** The platform touched the lava: ropes snap, it falls. Returns the falling surface. */
   breakPlatform(id: string): THREE.Group | null {
     const p = this.platforms.get(id);
