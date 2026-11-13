@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  pages: write
 
 # one writer at a time on gh-pages; never cancel a deploy halfway
 concurrency:
@@ -57,6 +58,12 @@ jobs:
           keep_files: true
           commit_message: 'Deploy ${{ github.ref_name }} @ ${{ github.sha }}'
 
+      # Pushes made with GITHUB_TOKEN don't always trigger a Pages rebuild: ask for one.
+      - name: Rebuild GitHub Pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds" || echo "::warning::Pages build request failed"
+
       - name: Link
         run: echo "### Published → ${{ steps.dest.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
 
@@ -70,6 +77,7 @@ jobs:
       - name: Delete preview folder
         env:
           BRANCH: ${{ github.event.ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           slug=$(echo "$BRANCH" | tr '/' '-' | tr -cd 'A-Za-z0-9._-')
           if [ -d "preview/$slug" ]; then
