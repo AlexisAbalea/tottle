@@ -1,13 +1,13 @@
 # Tottle — notes for Claude
 
 Mobile 3D balance puzzle. Hanging mobile of beams carries platforms; little stickmen
-(**Tottlers**) arrive one by one; the player taps a platform to place the current one.
-Goal: place everyone, drop as few as possible. Audience 18–70, casual, 30–90 s levels,
+(**Tottlers**) wait on a cloud; the player drags each one over the mobile and lets go.
+Gravity and collisions do the rest. Goal: place everyone without anything touching the lava. Audience 18–70, casual, 30–90 s levels,
 **no text needed to play** (rare UI text in English). Ads later (rewarded + interstitial).
 
-## Branch `feature/physics` — gameplay v3 (experiment, user request)
+## Rules (v3 — physics, current; merged from `feature/physics`)
 
-On this branch the Tottlers are **real physics** (Rapier), not computed rules:
+The Tottlers are **real physics** (Rapier), not computed rules:
 
 - **Drag & drop**: press anywhere → the next Tottler is picked up and hovers just above
   whatever is under the finger (x follows the finger), with a guide line and a landing ring
@@ -25,12 +25,14 @@ On this branch the Tottlers are **real physics** (Rapier), not computed rules:
 - Level lava distances re-derived with physics (`scripts/physics-lava.ts`); tests
   (`src/sim/sim.test.ts`) check behaviours and that a **bot** (beam search with real physics,
   `src/sim/bot.ts`) wins every level and that no single first drop reaches the lava.
-- Old rule engine (`core/game`, `solver`, `difficulty`) is unused by the app here; the difficulty
+- Old rule engine (`core/game`, `solver`, `difficulty`) is no longer used by the app; the difficulty
   curve is not re-measured for physics yet. Endless rounds are generated with the old solver
   (not physics-verified).
-- Preview: https://alexisabalea.github.io/tottle/preview/feature-physics/
 
-## Rules (v2 — after first playtest)
+## Legacy rule model (v2 — computed rules, kept in `core/`)
+
+No longer drives the game; still used to tune queues (`scripts/tune-levels.ts`) and to
+generate endless rounds. Kept for reference:
 
 - Structure: root beam hangs from a cloud. Each arm end holds a **platform** or a
   **sub-beam** (max 3 beam levels). Arms may have different lengths (levels 9+);
@@ -62,7 +64,6 @@ On this branch the Tottlers are **real physics** (Rapier), not computed rules:
   The first fall (no room, or a beam tipping) = **Game Over** ("Oops!"); lava = Game Over
   ("Lava!"). The tip-over cascade still plays out before the Game Over card.
   **Perfect** = root beam exactly level at the end (bonus badge + confetti).
-- Rapier physics is **only** the show (tumbling falls, sinking in lava, breaking platform).
 
 ## Decisions taken when the brief was vague
 
@@ -83,8 +84,9 @@ On this branch the Tottlers are **real physics** (Rapier), not computed rules:
 
 ## Stack
 
-TypeScript + Vite, Three.js (render), Rapier `@dimforge/rapier3d-compat` (falls only,
-lazy-loaded), Vitest (logic), Playwright (browser), ESLint + Prettier.
+TypeScript + Vite, Three.js (render), Rapier `@dimforge/rapier3d-compat` (the gameplay
+physics; lazy-loaded before the game starts, spinner meanwhile), Vitest (logic + physics),
+Playwright (browser), ESLint + Prettier.
 Later: Capacitor (iOS/Android) + AdMob.
 
 ## Layout
@@ -100,19 +102,22 @@ Later: Capacitor (iOS/Android) + AdMob.
 - `src/render/` `stage` (renderer, camera framing, lights, lava), `mobile` (cloud, beams,
   platforms + spring tilt, heat glow), `tottler` (procedural stickman, shared
   geometries), `materials` (palette, toon ramp, canvas textures).
-- `src/fx/` `physics` (Rapier falls, sinking), `particles` (instanced confetti/puffs), `audio`
-  (WebAudio synth + `vibrate`).
+- `src/sim/` `sim` (Rapier world: mobile, Tottlers, lava, clone), `bot` (beam-search player,
+  `bestDrop` for the tutorial hand), `rapier` (loader). No Three.js: runs in Node tests.
+- `src/fx/` `particles` (instanced confetti/puffs), `audio` (WebAudio synth + `vibrate`).
 - `src/ui/` DOM HUD (top bar, start, results, tutorial hand) + CSS.
-- `src/app.ts` controller (flow, placement sequence, input). `src/main.ts` boot + `window.__tottle`
-  test hooks (`state()`, `tap(id)`, `load(n)`, `speed(x)`).
+- `src/app.ts` controller (flow, grab/drag/drop, countdown, win/lose). `src/main.ts` boot +
+  `window.__tottle` test hooks (`state()`, `dropOn(id, offset)`, `suggestion()`, `screenOf()`,
+  `load(n)`, `speed(x)`).
 
 ## Conventions
 
-- Every level must be winnable (zero falls): `src/levels/levels.test.ts` runs the solver on each.
+- Every level must be winnable **with physics**: `src/sim/sim.test.ts` runs the bot on each
+  and checks no single first drop reaches the lava. After changing physics constants, re-run
+  `npx vite-node scripts/physics-lava.ts` to re-derive lava distances.
 - **Difficulty curve** (user request): levels alternate easy/medium and slowly ramp up;
-  every 5th level is HARD, every 10th VERY HARD. Tested with `myopicRate`: level 5k is the
-  hardest of its block of 5 and ≤ 20 %; level 10k the hardest of its 10 and < 5 %;
-  regular levels > 20 %.
+  every 5th level is HARD, every 10th VERY HARD. Was tested with `myopicRate` under the
+  rule model; **not yet re-measured with physics** (to do).
   Use `npx vite-node scripts/analyze-levels.ts` / `scripts/tune-levels.ts` to measure difficulty.
 - Test in the browser with Playwright at 390×844 and look at screenshots before calling a UI change done.
 - Performance target 60 fps on mid Android: shared geometries/materials, few lights, one shadow map.
