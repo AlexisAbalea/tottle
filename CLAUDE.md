@@ -15,7 +15,9 @@ Goal: place everyone, drop as few as possible. Audience 18–70, casual, 30–90
   sent; a Tottler of weight w takes w + 1 units. If it doesn't fit, it falls (1 fall).
 - Tottler weights: 1 (small, green), 2 (medium, orange), 3 (big, pink); number badge on the head.
   Their visual width matches the room they take.
-- Queue waits on top of the cloud: current + next 2 (and "+N"). They jump down onto platforms.
+- Queue waits on top of the cloud. The **next one to jump** stands big on a lit yellow pad,
+  under a bouncing arrow, waving; the next 2 wait **aside, smaller** (×0.7) and further back,
+  then "+N" (playtest: players couldn't tell who would jump). They jump down onto platforms.
 - Balance is **computed, never simulated**: per beam, `imbalance = Σ right torque − Σ left torque`.
   Tilt = imbalance / tolerance × 18° (spring-animated). **No gauge** (playtest feedback).
 - **Tip-over / snowball**: while a beam is over its tolerance (checked top→bottom, left→right),
@@ -31,13 +33,14 @@ Goal: place everyone, drop as few as possible. Audience 18–70, casual, 30–90
   every beam's tolerance ≥ heaviest weight in the queue × its longest arm
   (`loneTottlerSafe`, tested; the tuner and endless generator apply `fair()`).
   Difficulty must come from accumulation and planning, never from a first-move trap.
-- Stars: each fall costs a star — 0 falls 3★, 1 fall 2★, 2–9 falls 1★; **10 falls = lost**.
-  **Perfect** = root beam exactly level at the end.
+- **No stars** (playtest): the level is won only if everyone is placed with **zero falls**.
+  The first fall (no room, or a beam tipping) = **Game Over** ("Oops!"); lava = Game Over
+  ("Lava!"). The tip-over cascade still plays out before the Game Over card.
+  **Perfect** = root beam exactly level at the end (bonus badge + confetti).
 - Rapier physics is **only** the show (tumbling falls, sinking in lava, breaking platform).
 
 ## Decisions taken when the brief was vague
 
-- "Each fall costs a star" read literally, but finishing always keeps 1★ until the 10-fall loss.
 - Tip-over drops the heavy side's whole sub-tree (not just one platform): strongest snowball.
 - Lava is checked on the settled mobile, not during the tip swing (otherwise one move could
   instantly lose the level — too harsh).
@@ -46,12 +49,12 @@ Goal: place everyone, drop as few as possible. Audience 18–70, casual, 30–90
 - Platforms hang straight under their hook and tilt with their beam; sub-beams hang freely.
 - Tutorial (levels 1–3): a hand points at the solver's suggested platform every turn.
 - Endless mode (unlocked after level 3, default once all 20 are done): generated rounds
-  (always 3★-solvable, lava set by the solver + slack shrinking over time). Falls add up across
-  rounds; 10 falls or lava = game over; a Perfect round forgives one fall.
-  Score = Tottlers placed without any fall. Best score saved.
+  (always solvable, lava set by the solver + slack shrinking over time). The first fall or
+  lava = game over. Score = Tottlers placed (shown in the top bar). Best score saved.
 - App opens straight on the current level with a big Play button; Next/Retry start the
   next level immediately on the same screen. No level select.
-- Progress in `localStorage` key `tottle.progress.v1`.
+- Progress in `localStorage` key `tottle.progress.v1` (`completed[]`; older saves with `stars[]`
+  are migrated on load).
 
 ## Stack
 
@@ -63,8 +66,8 @@ Later: Capacitor (iOS/Android) + AdMob.
 
 - `src/core/` pure logic, **no three/rapier imports** (ESLint enforces it):
   `types`, `structure`, `balance` (torque, widths), `geometry` (layout, platform heights, lava),
-  `game` (place/settle), `score`, `solver` (3-star solver, hint, solution count),
-  `difficulty` (seeded `myopicRate`: share of short-sighted players who get 3★),
+  `game` (place/settle, win/lose), `solver` (zero-fall solver, hint, solution count),
+  `difficulty` (seeded `myopicRate`: share of short-sighted players who win),
   `progress` (save/load).
 - `src/levels/` `builder` (tiny DSL `B(tol, left, right, ll, rl)` / `P(S|M|L)`,
   `level(id, draft, queue, lavaGap, tutorial)`),
@@ -80,7 +83,7 @@ Later: Capacitor (iOS/Android) + AdMob.
 
 ## Conventions
 
-- Every level must be 3-star solvable: `src/levels/levels.test.ts` runs the solver on each.
+- Every level must be winnable (zero falls): `src/levels/levels.test.ts` runs the solver on each.
 - **Difficulty curve** (user request): levels alternate easy/medium and slowly ramp up;
   every 5th level is HARD, every 10th VERY HARD. Tested with `myopicRate`: level 5k is the
   hardest of its block of 5 and ≤ 20 %; level 10k the hardest of its 10 and < 5 %;

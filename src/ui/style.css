@@ -512,3 +512,15 @@ body {
   border-radius: 999px;
   padding: 2px 14px;
 }
+
+.score-pill svg {
+  width: 24px;
+  height: 24px;
+}
+.big-trophy svg {
+  width: 96px;
+  height: 96px;
+}
+.big-trophy.pop {
+  animation: pop 0.5s 0.15s cubic-bezier(0.3, 1.8, 0.5, 1) both;
+}

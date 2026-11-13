@@ -28,7 +28,7 @@ function geometries() {
   return geo;
 }
 
-export type TottlerMood = 'idle' | 'jump' | 'whoa' | 'fall' | 'cheer';
+export type TottlerMood = 'idle' | 'ready' | 'jump' | 'whoa' | 'fall' | 'cheer';
 
 /** A procedurally built stickman. `root` sits at the feet. */
 export class TottlerView {
@@ -131,6 +131,12 @@ export class TottlerView {
         }
         break;
       }
+      case 'ready':
+        // next to jump: eager little hops, one arm waving
+        bob = Math.abs(Math.sin(t * 5)) * 0.1;
+        armA = 0.35;
+        armSwing = 0;
+        break;
       case 'jump':
         armA = 2.5;
         armSwing = Math.sin(t * 20) * 0.2;
@@ -157,6 +163,7 @@ export class TottlerView {
     }
     this.armL.rotation.z = -(armA + armSwing);
     this.armR.rotation.z = armA - armSwing;
+    if (this.mood === 'ready') this.armR.rotation.z = 2.4 + Math.sin(t * 9) * 0.35; // waving
     this.legL.rotation.z = -legA * 0.4;
     this.legR.rotation.z = legA * 0.4;
     this.legL.rotation.x = this.mood === 'fall' ? legA : 0;

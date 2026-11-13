@@ -9,7 +9,6 @@ import {
   type GameEvent,
   type GameState,
 } from './core/game';
-import { MAX_FALLS, starsRemaining } from './core/score';
 import { hint } from './core/solver';
 import { tottlerWidth } from './core/balance';
 import { WIDTH_UNIT } from './core/geometry';
@@ -25,7 +24,7 @@ import { endlessLevel } from './levels/endless';
 import { Stage } from './render/stage';
 import { CLOUD_TOP, MobileView, packPositions } from './render/mobile';
 import { TottlerView } from './render/tottler';
-import { PALETTE, toon } from './render/materials';
+import { toon } from './render/materials';
 import { FallPhysics, type Rock } from './fx/physics';
 import { Particles } from './fx/particles';
 import { Sound, vibrate } from './fx/audio';
@@ -42,7 +41,11 @@ const SKIES = [
   ['#b9a8ff', '#dcd2ff', '#ffd0b5'],
   ['#ffd27a', '#ffe7b8', '#ffc99a'],
 ];
-const QUEUE_SPACING = 1.1;
+/** Waiting Tottlers stand aside, smaller; the next one to jump is big, on a lit pad. */
+const CURRENT_X = -1.0;
+const WAITING_X = 0.85;
+const WAITING_GAP = 0.75;
+const WAITING_SCALE = 0.7;
 const LAVA_COLORS = [0xffd23a, 0xff8a1f, 0xff5a1f];
 
 /** Simple game-time timers so animations can be awaited. */
@@ -95,6 +98,8 @@ export class App {
   /** Which platform each placed Tottler view stands on. */
   private onPlatform = new Map<number, string>();
   private pad: THREE.Mesh;
+  private padRing: THREE.Mesh;
+  private arrow: THREE.Mesh;
   private jumps: Jump[] = [];
   private queueOrigin = new THREE.Vector3();
   private pressed: string | null = null;
@@ -109,9 +114,17 @@ export class App {
     this.sound.muted = this.progress.muted;
     this.stage.scene.add(this.world, this.particles.mesh);
     const padGeo = new THREE.CylinderGeometry(0.62, 0.7, 0.12, 28);
-    this.pad = new THREE.Mesh(padGeo, toon(PALETTE.pad));
+    this.pad = new THREE.Mesh(padGeo, toon(0xffe27a));
     this.pad.receiveShadow = true;
-    this.stage.scene.add(this.pad);
+    this.padRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.72, 0.05, 8, 40).rotateX(Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0xffc93c, transparent: true }),
+    );
+    this.pad.add(this.padRing);
+    // bouncing arrow over the Tottler that jumps next
+    const arrowGeo = new THREE.ConeGeometry(0.28, 0.46, 4).rotateX(Math.PI);
+    this.arrow = new THREE.Mesh(arrowGeo, toon(0xffc93c));
+    this.stage.scene.add(this.pad, this.arrow);
 
     this.hud = new Hud(
       hudRoot,
@@ -231,7 +244,7 @@ export class App {
     this.mobile.lava = this.game.lava;
     this.world.add(this.mobile.group);
     // the queue waits on top of the cloud the mobile hangs from
-    this.queueOrigin.set(-QUEUE_SPACING, CLOUD_TOP, 0.3);
+    this.queueOrigin.set(CURRENT_X, CLOUD_TOP, 0.4);
     this.stage.setLava(this.game.lava);
     this.physics.setScene(this.game.lava, this.rock());
     this.pad.position.set(this.queueOrigin.x, this.queueOrigin.y + 0.02, this.queueOrigin.z);
@@ -253,7 +266,10 @@ export class App {
     this.stage.frame(Math.min(b.minX, -2.8), Math.max(b.maxX, 2.8), this.game.lava - 0.9, b.maxY);
   }
 
-  /** Waiting Tottlers stand on the cloud: current one on the pad, then the next two. */
+  /**
+   * Queue on the cloud: the next one to jump is big, on a lit pad under a bouncing arrow;
+   * the two after it wait aside, smaller and further back.
+   */
   private layoutQueue(instant = false) {
     this.game.queue.forEach((t, i) => {
       const v = this.views.get(t.id)!;
@@ -264,13 +280,21 @@ export class App {
       if (!v.root.parent) this.world.add(v.root);
       v.root.visible = true;
       v.showBadge(true);
-      const target = new THREE.Vector3(
-        this.queueOrigin.x + i * QUEUE_SPACING + (i > 0 ? 0.2 : 0),
-        this.queueOrigin.y + (i === 0 ? 0.08 : 0),
-        this.queueOrigin.z - (i > 0 ? 0.3 : 0),
-      );
+      const target =
+        i === 0
+          ? new THREE.Vector3(this.queueOrigin.x, this.queueOrigin.y + 0.08, this.queueOrigin.z)
+          : new THREE.Vector3(
+              WAITING_X + (i - 1) * WAITING_GAP,
+              this.queueOrigin.y,
+              this.queueOrigin.z - 0.45,
+            );
       v.root.userData.queueTarget = target;
-      if (instant) v.root.position.copy(target);
+      v.root.userData.queueScale = i === 0 ? 1 : WAITING_SCALE;
+      v.mood = i === 0 ? 'ready' : 'idle';
+      if (instant) {
+        v.root.position.copy(target);
+        v.root.scale.setScalar(v.scale * v.root.userData.queueScale);
+      }
     });
   }
 
@@ -411,14 +435,17 @@ export class App {
         await this.timers.wait(1.1);
         if (!alive()) return;
       }
-      if (!tips.length && !lava && this.mode === 'endless') this.endless.score += 1;
+      if (!tips.length && !lava && this.mode === 'endless') {
+        this.endless.score += 1;
+        this.refreshHud();
+      }
     }
     this.shown = cloneLoads(this.game.loads);
     this.mobile!.setLoads(this.shown);
 
     // 4. end?
     if (this.mode === 'endless') {
-      if (lava || this.endless.falls >= MAX_FALLS) return this.endlessOver();
+      if (lava || this.endless.falls > 0) return this.endlessOver();
       if (end) return this.endlessRoundDone(end.perfect);
     } else if (end) {
       return this.levelDone(end);
@@ -429,7 +456,6 @@ export class App {
 
   private afterFalls(n: number) {
     if (this.mode === 'endless') this.endless.falls += n;
-    this.refreshHud();
   }
 
   private jumpTo(view: TottlerView, pid: string, localX: number): Promise<void> {
@@ -533,13 +559,7 @@ export class App {
   }
 
   private refreshHud() {
-    if (this.mode === 'endless') {
-      this.hud.setStars(0, 'stars', 0);
-      this.hud.setFalls(this.endless.falls, MAX_FALLS, true);
-    } else {
-      this.hud.setStars(starsRemaining(this.game.falls), 'stars');
-      this.hud.setFalls(this.game.falls, MAX_FALLS, this.game.falls > 0);
-    }
+    this.hud.setScore(this.mode === 'endless' ? this.endless.score : null);
   }
 
   private updateHand() {
@@ -568,13 +588,7 @@ export class App {
       const center = new THREE.Vector3(0, this.mobile!.ceilingY - 1.5, 1);
       this.particles.confetti(center, end.perfect ? 160 : 60, end.perfect ? 1.4 : 0.8);
       if (end.perfect) setTimeout(() => this.sound.perfect(), 350);
-      this.progress = recordLevel(
-        this.progress,
-        this.levelIndex,
-        end.stars,
-        end.perfect,
-        LEVELS.length,
-      );
+      this.progress = recordLevel(this.progress, this.levelIndex, end.perfect, LEVELS.length);
       saveProgress(safeStorage(), this.progress);
     } else if (end.reason !== 'lava') {
       this.sound.fail();
@@ -587,12 +601,10 @@ export class App {
         won,
         level: this.levelIndex + 1,
         reason: end.reason,
-        stars: end.stars,
-        falls: end.falls,
         perfect: end.perfect,
         isLast: this.levelIndex >= LEVELS.length - 1,
       },
-      (i) => this.sound.star(i),
+      () => this.sound.star(2),
     );
   }
 
@@ -607,8 +619,6 @@ export class App {
     if (perfect) {
       // a Perfect round forgives one fall
       this.sound.perfect();
-      this.endless.falls = Math.max(0, this.endless.falls - 1);
-      this.refreshHud();
     }
     this.particles.confetti(
       new THREE.Vector3(0, this.mobile!.ceilingY - 1.5, 1),
@@ -653,6 +663,27 @@ export class App {
       const target = v?.root.userData.queueTarget as THREE.Vector3 | undefined;
       if (!v || !target || this.jumps.some((j) => j.view === v)) continue;
       v.root.position.lerp(target, Math.min(1, dt * 8));
+      const k = (v.root.userData.queueScale as number) ?? 1;
+      v.root.scale.setScalar(
+        THREE.MathUtils.lerp(v.root.scale.x, v.scale * k, Math.min(1, dt * 8)),
+      );
+    }
+    // arrow + pad pulse over the next Tottler
+    const cur = this.game.queue[0] ? this.views.get(this.game.queue[0].id) : undefined;
+    const jumping = !!cur && this.jumps.some((j) => j.view === cur);
+    this.arrow.visible = !!cur && !jumping && this.phase !== 'result';
+    this.padRing.visible = this.arrow.visible;
+    if (cur && this.arrow.visible) {
+      const t = this.timers.now;
+      this.arrow.position.set(
+        cur.root.position.x,
+        cur.root.position.y + cur.scale * 2.0 + 0.25 + Math.abs(Math.sin(t * 4)) * 0.18,
+        cur.root.position.z,
+      );
+      this.arrow.rotation.y = t * 2;
+      const pulse = 1 + 0.12 * Math.sin(t * 5);
+      this.padRing.scale.set(pulse, 1, pulse);
+      (this.padRing.material as THREE.MeshBasicMaterial).opacity = 0.55 + 0.35 * Math.sin(t * 5);
     }
     // placed Tottlers shuffle to their packed spot and react to the tilt / heat
     for (const [pid, list] of Object.entries(this.shown)) {
@@ -689,7 +720,11 @@ export class App {
   private updateQueueCount() {
     if (this.phase !== 'playing' && this.phase !== 'busy') return;
     const extra = this.game.queue.length - 3;
-    const p = this.queueOrigin.clone().add(new THREE.Vector3(QUEUE_SPACING * 2 + 1.1, 0.5, -0.3));
+    const p = new THREE.Vector3(
+      WAITING_X + WAITING_GAP + 0.75,
+      this.queueOrigin.y + 0.4,
+      this.queueOrigin.z - 0.45,
+    );
     const s = this.stage.toScreen(p);
     this.hud.setQueueCount(Math.max(0, extra), s.x, s.y);
   }

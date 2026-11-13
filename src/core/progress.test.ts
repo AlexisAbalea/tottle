@@ -25,7 +25,7 @@ describe('progress', () => {
 
   it('round-trips through storage and survives garbage', () => {
     const s = memStore();
-    let p = recordLevel(defaultProgress(), 0, 3, true, 15);
+    let p = recordLevel(defaultProgress(), 0, true, 20);
     p = recordEndless(p, 12);
     saveProgress(s, p);
     expect(loadProgress(s)).toEqual(p);
@@ -33,16 +33,19 @@ describe('progress', () => {
     expect(loadProgress(s)).toEqual(defaultProgress());
   });
 
-  it('keeps best stars and advances the current level', () => {
-    let p = recordLevel(defaultProgress(), 0, 2, false, 15);
+  it('reads older saves that stored stars', () => {
+    const s = memStore();
+    s.setItem(STORAGE_KEY, JSON.stringify({ version: 1, level: 2, stars: [3, 1], perfect: [] }));
+    expect(loadProgress(s)).toMatchObject({ level: 2, completed: [true, true] });
+  });
+
+  it('advances the current level on a win', () => {
+    let p = recordLevel(defaultProgress(), 0, false, 20);
     expect(p.level).toBe(1);
-    p = recordLevel(p, 0, 1, false, 15);
-    expect(p.stars[0]).toBe(2);
+    p = recordLevel(p, 0, false, 20); // replaying does not go back
     expect(p.level).toBe(1);
-    p = recordLevel(p, 1, 0, false, 15); // failed: no progress
-    expect(p.level).toBe(1);
-    p = recordLevel(p, 14, 3, false, 15);
-    expect(p.level).toBe(15);
-    expect(p.stars[5]).toBe(0);
+    p = recordLevel(p, 19, false, 20);
+    expect(p.level).toBe(20);
+    expect(p.completed[5]).toBe(false);
   });
 });

@@ -3,8 +3,8 @@ export interface Progress {
   version: 1;
   /** Index (0-based) of the level the app opens on. Equals the level count when all are done. */
   level: number;
-  /** Best stars per level index (0 = not finished). */
-  stars: number[];
+  /** Levels finished (index → true). */
+  completed: boolean[];
   perfect: boolean[];
   endlessBest: number;
   muted: boolean;
@@ -18,7 +18,7 @@ export interface KeyValueStore {
 export const STORAGE_KEY = 'tottle.progress.v1';
 
 export function defaultProgress(): Progress {
-  return { version: 1, level: 0, stars: [], perfect: [], endlessBest: 0, muted: false };
+  return { version: 1, level: 0, completed: [], perfect: [], endlessBest: 0, muted: false };
 }
 
 export function loadProgress(store: KeyValueStore | null | undefined): Progress {
@@ -26,14 +26,17 @@ export function loadProgress(store: KeyValueStore | null | undefined): Progress 
   try {
     const raw = store?.getItem(STORAGE_KEY);
     if (!raw) return base;
-    const p = JSON.parse(raw) as Partial<Progress>;
+    const p = JSON.parse(raw) as Partial<Progress> & { stars?: number[] };
     if (p.version !== 1) return base;
     return {
       version: 1,
       level: Number.isInteger(p.level) && p.level! >= 0 ? p.level! : 0,
-      stars: Array.isArray(p.stars)
-        ? p.stars.map((s) => Math.max(0, Math.min(3, Number(s) || 0)))
-        : [],
+      // older saves stored stars per level: any star means finished
+      completed: Array.isArray(p.completed)
+        ? p.completed.map(Boolean)
+        : Array.isArray(p.stars)
+          ? p.stars.map((s) => Number(s) > 0)
+          : [],
       perfect: Array.isArray(p.perfect) ? p.perfect.map(Boolean) : [],
       endlessBest: Number(p.endlessBest) || 0,
       muted: !!p.muted,
@@ -51,21 +54,18 @@ export function saveProgress(store: KeyValueStore | null | undefined, p: Progres
   }
 }
 
-/** Record a finished level. Keeps the best result and moves the "current level" forward. */
+/** Record a won level and move the "current level" forward. */
 export function recordLevel(
   p: Progress,
   index: number,
-  stars: number,
   perfect: boolean,
   levelCount: number,
 ): Progress {
-  const next: Progress = { ...p, stars: p.stars.slice(), perfect: p.perfect.slice() };
-  if (stars > 0) {
-    next.stars[index] = Math.max(next.stars[index] ?? 0, stars);
-    next.perfect[index] = (next.perfect[index] ?? false) || perfect;
-    next.level = Math.min(levelCount, Math.max(p.level, index + 1));
-  }
-  for (let i = 0; i < next.stars.length; i++) next.stars[i] ??= 0;
+  const next: Progress = { ...p, completed: p.completed.slice(), perfect: p.perfect.slice() };
+  next.completed[index] = true;
+  next.perfect[index] = (next.perfect[index] ?? false) || perfect;
+  next.level = Math.min(levelCount, Math.max(p.level, index + 1));
+  for (let i = 0; i < next.completed.length; i++) next.completed[i] ??= false;
   for (let i = 0; i < next.perfect.length; i++) next.perfect[i] ??= false;
   return next;
 }

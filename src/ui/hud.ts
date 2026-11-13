@@ -29,9 +29,7 @@ export interface HudCallbacks {
 export interface ResultInfo {
   won: boolean;
   level: number;
-  reason?: 'falls' | 'lava';
-  stars: number;
-  falls: number;
+  reason?: 'fall' | 'lava';
   perfect: boolean;
   isLast: boolean;
 }
@@ -40,7 +38,6 @@ export interface ResultInfo {
 export class Hud {
   private top: HTMLElement;
   private levelPill: HTMLElement;
-  private starsEl: HTMLElement;
   private soundBtn: HTMLButtonElement;
   private start: HTMLElement;
   private result: HTMLElement;
@@ -56,8 +53,7 @@ export class Hud {
       <div class="topbar hidden" data-testid="topbar">
         <div class="pill" data-testid="level-pill"></div>
         <div class="mid-pills">
-          <div class="pill stars" data-testid="stars"></div>
-          <div class="pill falls-pill" data-testid="falls-pill"></div>
+          <div class="pill score-pill" data-testid="score-pill" style="display:none"></div>
         </div>
         <div class="right-btns">
           <button class="icon-btn" data-act="retry" aria-label="Restart">${SVG.retry}</button>
@@ -81,7 +77,6 @@ export class Hud {
     `;
     this.top = root.querySelector('.topbar')!;
     this.levelPill = root.querySelector('[data-testid=level-pill]')!;
-    this.starsEl = root.querySelector('[data-testid=stars]')!;
     this.soundBtn = root.querySelector('[data-act=sound]')!;
     this.start = root.querySelector('[data-testid=start]')!;
     this.result = root.querySelector('[data-testid=result]')!;
@@ -130,22 +125,11 @@ export class Hud {
     this.levelPill.innerHTML = label;
   }
 
-  /** Remaining stars (levels) or hearts (endless). */
-  setStars(n: number, kind: 'stars' | 'hearts' = 'stars', max = 3) {
-    let html = '';
-    for (let i = 0; i < max; i++) {
-      const icon = kind === 'stars' ? SVG.star() : SVG.heart;
-      html += i < n ? icon : icon.replace('class="star"', 'class="star off"');
-    }
-    this.starsEl.innerHTML = html;
-    this.starsEl.style.display = max > 0 ? 'flex' : 'none';
-  }
-
-  /** Fallen counter, e.g. "3/10". */
-  setFalls(n: number, max: number, visible: boolean) {
-    const el = this.root.querySelector('[data-testid=falls-pill]') as HTMLElement;
-    el.style.display = visible ? 'flex' : 'none';
-    el.innerHTML = `${SVG.fallen}<span>${n}/${max}</span>`;
+  /** Endless score in the top bar (null hides it). */
+  setScore(n: number | null) {
+    const el = this.root.querySelector('[data-testid=score-pill]') as HTMLElement;
+    el.style.display = n === null ? 'none' : 'flex';
+    el.innerHTML = `${SVG.tottler}<span>${n ?? ''}</span>`;
   }
 
   setQueueCount(n: number, x: number, y: number) {
@@ -155,18 +139,15 @@ export class Hud {
     this.queueCount.style.top = `${y}px`;
   }
 
-  showResult(r: ResultInfo, onStar: (i: number) => void) {
+  showResult(r: ResultInfo, onWin: () => void) {
     const card = this.result.querySelector('.card')!;
     const retry = (main: boolean) =>
       `<button class="${main ? 'big-btn' : 'big-btn ghost'}" data-act="retry" data-testid="retry" aria-label="Retry">${SVG.retry}<span>Retry</span></button>`;
     if (r.won) {
-      let stars = '';
-      for (let i = 0; i < 3; i++) stars += SVG.star(i < r.stars ? '#ffc93c' : '#e8e4f3');
       card.innerHTML = `
         <h2 data-testid="result-title">Level ${r.level}<br><small>Complete!</small></h2>
-        <div class="big-stars" data-testid="result-stars" data-stars="${r.stars}">${stars}</div>
+        <div class="big-trophy pop" data-testid="result-won">${SVG.trophy}</div>
         ${r.perfect ? '<div class="perfect" data-testid="perfect">PERFECT!</div>' : ''}
-        <div class="stat">${SVG.fallen}<span data-testid="falls">${r.falls}</span></div>
         <div class="card-btns">
           ${retry(false)}
           ${
@@ -175,20 +156,12 @@ export class Hud {
               : `<button class="big-btn" data-act="next" data-testid="next" aria-label="Next level">${SVG.play}<span>Next</span></button>`
           }
         </div>`;
-      const els = card.querySelectorAll('.big-stars .star');
-      els.forEach((el, i) => {
-        el.classList.remove('pop');
-        if (i < r.stars) {
-          (el as HTMLElement).style.animationDelay = `${0.15 + i * 0.25}s`;
-          el.classList.add('pop');
-          setTimeout(() => onStar(i), 150 + i * 250);
-        }
-      });
+      setTimeout(onWin, 200);
     } else {
       const lava = r.reason === 'lava';
       card.innerHTML = `
         <h2 class="lost" data-testid="result-title">Game Over</h2>
-        <div class="stat big-icon" data-testid="fail-${r.reason ?? 'falls'}">${lava ? SVG.lava : SVG.fallen}<span data-testid="falls">${lava ? 'Lava!' : `${r.falls}/10`}</span></div>
+        <div class="stat big-icon" data-testid="fail-${r.reason ?? 'fall'}">${lava ? SVG.lava : SVG.fallen}<span>${lava ? 'Lava!' : 'Oops!'}</span></div>
         <div class="card-btns">${retry(true)}</div>`;
     }
     this.result.classList.remove('hidden');

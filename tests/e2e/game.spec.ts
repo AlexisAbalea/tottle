@@ -29,7 +29,7 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(() => window.__tottle.speed(3));
 });
 
-test('opens directly on level 1 with a play button, tutorial hand, then a 3-star result', async ({
+test('opens directly on level 1 with a play button, tutorial hand, then a win', async ({
   page,
 }) => {
   await expect(page.getByTestId('start')).toBeVisible();
@@ -37,7 +37,7 @@ test('opens directly on level 1 with a play button, tutorial hand, then a 3-star
   await page.getByTestId('play').click({ force: true });
   await expect(page.getByTestId('hand')).toHaveClass(/show/);
   await playWithHints(page);
-  await expect(page.getByTestId('result-stars')).toHaveAttribute('data-stars', '3');
+  await expect(page.getByTestId('result-won')).toBeVisible();
   await page.screenshot({ path: 'test-results/level1-result.png' });
   const s = await state(page);
   expect(s.progress.level).toBe(1);
@@ -54,7 +54,7 @@ test('progress survives a reload', async ({ page }) => {
   await expect(page.getByTestId('start-level')).toHaveText('LEVEL 2');
 });
 
-test('overloading one side dumps everyone on it (snowball) and costs stars', async ({ page }) => {
+test('one fall is enough to lose: the tipped side drops everyone (snowball)', async ({ page }) => {
   await page.getByTestId('play').click({ force: true });
   // Level 1: tolerance 2. Three on the left → the left side tips and all three fall.
   for (let i = 0; i < 3; i++) {
@@ -64,9 +64,10 @@ test('overloading one side dumps everyone on it (snowball) and costs stars', asy
   }
   const s = await state(page);
   expect(s.falls).toBe(3);
-  expect(s.platforms.p0.count).toBe(0);
-  await expect(page.locator('[data-testid=stars] .star.off')).toHaveCount(2);
-  await expect(page.getByTestId('falls-pill')).toContainText('3/10');
+  expect(s.status).toBe('failed');
+  expect(s.failReason).toBe('fall');
+  await expect(page.getByTestId('fail-fall')).toBeVisible();
+  await expect(page.getByTestId('result-title')).toHaveText('Game Over');
 });
 
 test('a platform that touches the lava breaks and loses the level', async ({ page }) => {
@@ -85,20 +86,20 @@ test('a platform that touches the lava breaks and loses the level', async ({ pag
   await page.screenshot({ path: 'test-results/lava-fail.png' });
 });
 
-test('every level can be finished with 3 stars in the browser', async ({ page }) => {
+test('every level can be won (no fall) in the browser', async ({ page }) => {
   test.setTimeout(240_000);
   await page.evaluate(() => window.__tottle.speed(6));
   for (let n = 1; n <= 20; n++) {
     await page.evaluate((k) => window.__tottle.load(k), n);
     await waitIdle(page);
     await playWithHints(page);
-    await expect(page.getByTestId('result-stars')).toHaveAttribute('data-stars', '3');
+    await expect(page.getByTestId('result-won')).toBeVisible();
     if (n === 10 || n === 20) await page.screenshot({ path: `test-results/level${n}-done.png` });
   }
   expect((await state(page)).progress.level).toBe(20);
 });
 
-test('endless mode runs rounds and ends after 10 falls or lava', async ({ page }) => {
+test('endless mode runs rounds and ends at the first fall or lava', async ({ page }) => {
   await page.evaluate(() => {
     localStorage.setItem(
       'tottle.progress.v1',

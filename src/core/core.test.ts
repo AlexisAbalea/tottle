@@ -18,7 +18,6 @@ import {
   platformsInLava,
 } from './geometry';
 import { createGame, freeWidth, place, settle } from './game';
-import { starsFor } from './score';
 import { listPlatforms, validateStructure } from './structure';
 import { countSolutions, hint, solveLevel } from './solver';
 
@@ -146,7 +145,7 @@ describe('tipping (snowball)', () => {
 });
 
 describe('game flow', () => {
-  it('counts falls, stars and ends', () => {
+  it('a tip-over drops the heavy side and loses the level', () => {
     const lv: LevelDef = {
       id: 't',
       root: beam('root', 2, P('L'), P('R')),
@@ -161,7 +160,8 @@ describe('game flow', () => {
     const r = place(g, 'R'); // 6 vs 1 → right dumps 3 Tottlers → 0 vs 1 ok
     expect(r.events.map((e) => e.type)).toEqual(['placed', 'tip', 'end']);
     expect(r.state.falls).toBe(3);
-    expect(r.events.at(-1)).toMatchObject({ status: 'won', stars: 1 });
+    expect(r.events.at(-1)).toMatchObject({ status: 'failed', reason: 'fall', falls: 3 });
+    expect(r.state.status).toBe('failed');
   });
 
   it('makes a Tottler fall when the platform has no room left', () => {
@@ -178,9 +178,8 @@ describe('game flow', () => {
     expect(r.events[0]).toMatchObject({ type: 'noRoom', platformId: 'L' });
     expect(r.state.falls).toBe(1);
     expect(r.state.loads.L).toHaveLength(1);
-    const r2 = place(r.state, 'L'); // width 2 fits exactly
-    expect(r2.events[0].type).toBe('placed');
-    expect(r2.events.at(-1)).toMatchObject({ type: 'end', stars: 2 });
+    expect(r.state.status).toBe('failed');
+    expect(r.state.failReason).toBe('fall');
   });
 
   it('loses the level when a platform touches the lava', () => {
@@ -210,30 +209,23 @@ describe('game flow', () => {
     expect(end.events.at(-1)).toMatchObject({
       type: 'end',
       status: 'won',
-      stars: 3,
+      falls: 0,
       perfect: true,
     });
   });
 
-  it('fails the level at 10 falls', () => {
+  it('wins only when everyone is placed without a fall', () => {
     const lv: LevelDef = {
       id: 'x',
-      root: beam('r', 9, P('L', 2), P('R', 30)),
-      queue: [1, ...Array(12).fill(3)] as Weight[],
+      root: beam('r', 9, P('L', 6), P('R', 6)),
+      queue: [3, 1],
       lavaGap: 50,
     };
     let g = createGame(lv);
     g = place(g, 'L').state;
-    for (let i = 0; i < 10; i++) g = place(g, 'L').state; // no room each time
-    expect(g.falls).toBe(10);
-    expect(g.status).toBe('failed');
-    expect(g.failReason).toBe('falls');
-  });
-});
-
-describe('score', () => {
-  it('each fall costs a star, finishing keeps one, 10 falls lose', () => {
-    expect([0, 1, 2, 3, 9, 10].map(starsFor)).toEqual([3, 2, 1, 1, 1, 0]);
+    const end = place(g, 'L'); // 4 + 2 = 6 fits exactly
+    expect(end.state.status).toBe('won');
+    expect(end.state.falls).toBe(0);
   });
 });
 

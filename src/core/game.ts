@@ -2,10 +2,10 @@ import type { LevelDef, Loads, PlatformNode, Side, Tottler, Weight } from './typ
 import { firstOverTolerance, imbalance, platformWeights, tottlerWidth, usedWidth } from './balance';
 import { computeLayout, lavaLevel, platformsInLava, type NodeLayout } from './geometry';
 import { listPlatforms, platformIdsUnder } from './structure';
-import { MAX_FALLS, starsFor } from './score';
 
 export type GameStatus = 'playing' | 'won' | 'failed';
-export type FailReason = 'falls' | 'lava';
+/** 'fall': a Tottler fell (no room, or a beam tipped). 'lava': a platform touched the lava. */
+export type FailReason = 'fall' | 'lava';
 
 export interface GameState {
   level: LevelDef;
@@ -43,7 +43,6 @@ export type GameEvent =
       type: 'end';
       status: 'won' | 'failed';
       reason?: FailReason;
-      stars: number;
       falls: number;
       perfect: boolean;
     };
@@ -166,18 +165,17 @@ export function place(
       type: 'end',
       status: 'failed',
       reason: 'lava',
-      stars: 0,
       falls: next.falls,
       perfect: false,
     });
-  } else if (next.falls >= MAX_FALLS) {
+  } else if (next.falls > 0) {
+    // One fall is enough to lose: the goal is to place everyone safely.
     next.status = 'failed';
-    next.failReason = 'falls';
+    next.failReason = 'fall';
     events.push({
       type: 'end',
       status: 'failed',
-      reason: 'falls',
-      stars: 0,
+      reason: 'fall',
       falls: next.falls,
       perfect: false,
     });
@@ -186,7 +184,6 @@ export function place(
     events.push({
       type: 'end',
       status: 'won',
-      stars: starsFor(next.falls),
       falls: next.falls,
       perfect: isPerfect(next),
     });
