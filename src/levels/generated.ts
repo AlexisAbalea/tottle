@@ -14,7 +14,7 @@ export function rng(seed: number) {
   };
 }
 
-/** Structure templates for endless mode, from easy to hard. */
+/** Structure templates for generated levels, from easy to hard. */
 const TEMPLATES = [
   () => B(2, P(M), P(M)),
   () => B(3, P(S), P(L)),

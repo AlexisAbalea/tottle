@@ -38,7 +38,7 @@ The Tottlers are **real physics** (Rapier), not computed rules:
 ## Legacy rule model (v2 — computed rules, kept in `core/`)
 
 No longer drives the game; still used to tune queues (`scripts/tune-levels.ts`) and to
-generate endless rounds. Kept for reference:
+generate levels 21+. Kept for reference:
 
 - Structure: root beam hangs from a cloud. Each arm end holds a **platform** or a
   **sub-beam** (max 3 beam levels). Arms may have different lengths (levels 9+);
@@ -64,7 +64,7 @@ generate endless rounds. Kept for reference:
   Levels guarantee that no first move can burn a platform (test).
 - **Fairness (playtest feedback)**: a lone Tottler on an empty mobile never tips a beam —
   every beam's tolerance ≥ heaviest weight in the queue × its longest arm
-  (`loneTottlerSafe`, tested; the tuner and endless generator apply `fair()`).
+  (`loneTottlerSafe`, tested; the tuner and the level generator apply `fair()`).
   Difficulty must come from accumulation and planning, never from a first-move trap.
 - **No stars** (playtest): the level is won only if everyone is placed with **zero falls**.
   The first fall (no room, or a beam tipping) = **Game Over** ("Oops!"); lava = Game Over

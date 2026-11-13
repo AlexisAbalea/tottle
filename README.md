@@ -52,7 +52,7 @@ branch `gh-pages`, folder `/ (root)`.
 | Folder        | What                                                                     |
 | ------------- | ------------------------------------------------------------------------ |
 | `src/core/`   | Pure game logic (no Three.js): balance, falls, scoring, solver, progress |
-| `src/levels/` | 20 hand-made levels (small DSL) + endless generator                      |
+| `src/levels/` | 20 hand-made levels (small DSL), then generated levels with no end       |
 | `src/render/` | Three.js scene: mobile, Tottlers, camera framing                         |
 | `src/fx/`     | Rapier falls (show only), particles, WebAudio sounds, vibration          |
 | `src/ui/`     | DOM HUD: start, top bar, results, tutorial hand                          |
