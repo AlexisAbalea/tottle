@@ -8,8 +8,7 @@ const SVG = {
   retry: `<svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4v4.5H9"/></svg>`,
   soundOn: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 9h3.5L12 5v14l-4.5-4H4z"/><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>`,
   soundOff: `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M4 9h3.5L12 5v14l-4.5-4H4z"/><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>`,
-  infinity: `<svg viewBox="0 0 24 24"><path fill="none" stroke="#8c6cf2" stroke-width="2.8" stroke-linecap="round" d="M12 12c-2-2.7-3.6-4-5.5-4a4 4 0 0 0 0 8c1.9 0 3.5-1.3 5.5-4zm0 0c2 2.7 3.6 4 5.5 4a4 4 0 0 0 0-8c-1.9 0-3.5 1.3-5.5 4z"/></svg>`,
-  home: `<svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round" d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/></svg>`,
+  level: `<svg viewBox="0 0 24 24"><path fill="#8c6cf2" d="M3 21v-4h5v-4h5V9h5v12z"/><path stroke="#2b2340" stroke-width="1.6" stroke-linecap="round" d="M18 9V3"/><path fill="#ff5a7e" d="M18 3h4l-1.3 1.6L22 6.2h-4z"/></svg>`,
   fallen: `<svg viewBox="0 0 24 24"><circle cx="12" cy="6" r="3.2" fill="#ff5a7e"/><path stroke="#ff5a7e" stroke-width="2.6" stroke-linecap="round" d="M12 10v6M8 12l-3-3M16 12l3-3M12 16l-3 4M12 16l3 4"/><path stroke="#2b2340" stroke-width="2" stroke-linecap="round" d="M3 22h18"/></svg>`,
   trophy: `<svg viewBox="0 0 24 24"><path fill="#ffc93c" stroke="#e0a100" stroke-width="1.2" d="M7 3h10v5a5 5 0 0 1-10 0zM10 14h4v3h3v3H7v-3h3z"/><path fill="none" stroke="#e0a100" stroke-width="1.6" d="M7 5H4v2a3 3 0 0 0 3 3M17 5h3v2a3 3 0 0 1-3 3"/></svg>`,
   tottler: `<svg viewBox="0 0 24 24"><circle cx="12" cy="6" r="3.4" fill="#45d39b"/><path stroke="#45d39b" stroke-width="3" stroke-linecap="round" d="M12 10v6M8 11.5l-2 3M16 11.5l2 3M12 16l-2.5 5M12 16l2.5 5"/></svg>`,
@@ -19,10 +18,8 @@ const SVG = {
 
 export interface HudCallbacks {
   onPlay(): void;
-  onEndless(): void;
   onRetry(): void;
   onNext(): void;
-  onHome(): void;
   onToggleSound(): boolean;
 }
 
@@ -31,7 +28,6 @@ export interface ResultInfo {
   level: number;
   reason?: 'fall' | 'lava';
   perfect: boolean;
-  isLast: boolean;
 }
 
 /** All DOM UI: top bar, start screen, result card, tutorial hand. */
@@ -52,9 +48,6 @@ export class Hud {
     root.innerHTML = `
       <div class="topbar hidden" data-testid="topbar">
         <div class="pill" data-testid="level-pill"></div>
-        <div class="mid-pills">
-          <div class="pill score-pill" data-testid="score-pill" style="display:none"></div>
-        </div>
         <div class="right-btns">
           <button class="icon-btn" data-act="retry" aria-label="Restart">${SVG.retry}</button>
           <button class="icon-btn" data-act="sound" aria-label="Sound"></button>
@@ -66,7 +59,7 @@ export class Hud {
         <div class="start-bottom">
           <div class="level-tag" data-testid="start-level"></div>
           <div class="play-row">
-            <button class="side-btn" data-act="endless" aria-label="Endless mode">${SVG.infinity}</button>
+            <div class="side-spacer"></div>
             <button class="play-btn" data-act="play" data-testid="play" aria-label="Play">${SVG.play}<span class="btn-label">Play</span></button>
             <button class="side-btn" data-act="sound2" aria-label="Sound"></button>
           </div>
@@ -91,10 +84,8 @@ export class Hud {
       e.stopPropagation();
       const act = btn.dataset.act;
       if (act === 'play') cb.onPlay();
-      else if (act === 'endless') cb.onEndless();
       else if (act === 'retry') cb.onRetry();
       else if (act === 'next') cb.onNext();
-      else if (act === 'home') cb.onHome();
       else if (act === 'sound' || act === 'sound2') this.setMuted(cb.onToggleSound());
     });
     // Buttons must not leak taps to the 3D scene.
@@ -110,27 +101,20 @@ export class Hud {
     if (b2) b2.innerHTML = icon;
   }
 
-  showStart(label: string, endlessUnlocked: boolean) {
-    this.start.querySelector('[data-testid=start-level]')!.innerHTML = label;
-    (this.start.querySelector('[data-act=endless]') as HTMLElement).style.visibility =
-      endlessUnlocked ? 'visible' : 'hidden';
+  /** Start screen: just the current level and a big Play button (no menu: levels never end). */
+  showStart(level: number) {
+    this.start.querySelector('[data-testid=start-level]')!.innerHTML =
+      `${SVG.level}<span>LEVEL ${level}</span>`;
     this.start.classList.remove('hidden');
     this.result.classList.add('hidden');
     this.top.classList.add('hidden');
   }
 
-  showPlaying(label: string) {
+  showPlaying(level: number) {
     this.start.classList.add('hidden');
     this.result.classList.add('hidden');
     this.top.classList.remove('hidden');
-    this.levelPill.innerHTML = label;
-  }
-
-  /** Endless score in the top bar (null hides it). */
-  setScore(n: number | null) {
-    const el = this.root.querySelector('[data-testid=score-pill]') as HTMLElement;
-    el.style.display = n === null ? 'none' : 'flex';
-    el.innerHTML = `${SVG.tottler}<span>${n ?? ''}</span>`;
+    this.levelPill.innerHTML = `${SVG.level}<span>${level}</span>`;
   }
 
   setQueueCount(n: number, x: number, y: number) {
@@ -151,36 +135,15 @@ export class Hud {
         ${r.perfect ? '<div class="perfect" data-testid="perfect">PERFECT!</div>' : ''}
         <div class="card-btns">
           ${retry(false)}
-          ${
-            r.isLast
-              ? `<button class="big-btn" data-act="home" data-testid="next" aria-label="Continue">${SVG.play}<span>Continue</span></button>`
-              : `<button class="big-btn" data-act="next" data-testid="next" aria-label="Next level">${SVG.play}<span>Next</span></button>`
-          }
+          <button class="big-btn" data-act="next" data-testid="next" aria-label="Next level">${SVG.play}<span>Next</span></button>
         </div>`;
       setTimeout(onWin, 200);
     } else {
-      const lava = r.reason === 'lava';
       card.innerHTML = `
         <h2 class="lost" data-testid="result-title">Game Over</h2>
-        <div class="stat big-icon" data-testid="fail-${r.reason ?? 'fall'}">${lava ? SVG.lava : SVG.fallen}<span>${lava ? 'Lava!' : 'Oops!'}</span></div>
+        <div class="stat big-icon" data-testid="fail-${r.reason ?? 'fall'}">${r.reason === 'lava' ? SVG.lava : SVG.fallen}</div>
         <div class="card-btns">${retry(true)}</div>`;
     }
-    this.result.classList.remove('hidden');
-    this.top.classList.add('hidden');
-    this.setQueueCount(0, 0, 0);
-  }
-
-  showEndlessOver(score: number, best: number, isBest: boolean) {
-    const card = this.result.querySelector('.card')!;
-    card.innerHTML = `
-      <h2 class="lost" data-testid="result-title">Game Over</h2>
-      <div class="stat score-line">Score<span data-testid="score">${score}</span></div>
-      ${isBest ? '<div class="perfect">NEW BEST!</div>' : ''}
-      <div class="stat">${SVG.trophy}<span>Best ${best}</span></div>
-      <div class="card-btns">
-        <button class="big-btn ghost" data-act="home" aria-label="Home">${SVG.home}<span>Home</span></button>
-        <button class="big-btn" data-act="retry" data-testid="retry" aria-label="Play again">${SVG.retry}<span>Retry</span></button>
-      </div>`;
     this.result.classList.remove('hidden');
     this.top.classList.add('hidden');
     this.setQueueCount(0, 0, 0);

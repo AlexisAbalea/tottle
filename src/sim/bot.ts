@@ -157,4 +157,36 @@ export function bestDrop(
   return best && { platformId: best.platformId, x: best.x, y: best.y };
 }
 
+/** True if no single first drop (heaviest Tottler, platform centre) reaches the lava. */
+export function firstDropSafe(R: typeof RAPIER_NS, level: LevelDef): boolean {
+  const sim = new Sim(R, level);
+  const w = Math.max(...level.queue) as 1 | 2 | 3;
+  let ok = true;
+  for (const p of Object.values(sim.platformStates())) {
+    const t = sim.clone();
+    t.drop({ id: 1, weight: w }, p.x, t.surfaceBelow(p.x)! + DROP_GAP);
+    for (let i = 0; i < 180 && ok; i++) {
+      t.stepFixed();
+      if (t.lavaHit()) ok = false;
+    }
+    t.free();
+    if (!ok) break;
+  }
+  sim.free();
+  return ok;
+}
+
+/** Slack added above the first-drop-safe lava distance for generated levels. */
+export const GENERATED_LAVA_SLACK = 0.4;
+
+/**
+ * Lava distance for a generated level, with real physics: raise it until no first drop can
+ * reach the lava, then add some slack. Cheap enough to run in the browser.
+ */
+export function physicsLavaGap(R: typeof RAPIER_NS, level: LevelDef): number {
+  let gap = level.lavaGap ?? 1.2;
+  for (let i = 0; i < 40 && !firstDropSafe(R, { ...level, lavaGap: gap }); i++) gap += 0.1;
+  return Math.round((gap + GENERATED_LAVA_SLACK) * 100) / 100;
+}
+
 export { tottlerShape };

@@ -25,9 +25,15 @@ The Tottlers are **real physics** (Rapier), not computed rules:
 - Level lava distances re-derived with physics (`scripts/physics-lava.ts`); tests
   (`src/sim/sim.test.ts`) check behaviours and that a **bot** (beam search with real physics,
   `src/sim/bot.ts`) wins every level and that no single first drop reaches the lava.
-- Old rule engine (`core/game`, `solver`, `difficulty`) is no longer used by the app; the difficulty
-  curve is not re-measured for physics yet. Endless rounds are generated with the old solver
-  (not physics-verified).
+- **Levels never end** (user: "thousands of levels"): 1–20 hand-made (`levels.ts`), then level
+  n is generated from its number (`levels/generated.ts`, always the same for a given n; harder
+  every 5th, much harder every 10th). Its lava distance is set with physics in the browser
+  (`physicsLavaGap`: no first drop reaches the lava, + 0.4 slack), cached and prepared during
+  the win card. Levels 21–30 are bot-verified in tests; beyond, not verified.
+- No endless mode and no menu: the app opens on the current level with Play; the top bar shows
+  a level icon + number. Game Over card = title + icon only (no "Lava!"/"Oops!").
+- Old rule engine (`core/game`, `solver`, `difficulty`) is no longer used to play; it still
+  generates rule-solvable levels. The difficulty curve is not re-measured for physics yet.
 
 ## Legacy rule model (v2 — computed rules, kept in `core/`)
 
@@ -74,9 +80,6 @@ generate endless rounds. Kept for reference:
   No time limit anywhere.
 - Platforms hang straight under their hook and tilt with their beam; sub-beams hang freely.
 - Tutorial (levels 1–3): a hand points at the solver's suggested platform every turn.
-- Endless mode (unlocked after level 3, default once all 20 are done): generated rounds
-  (always solvable, lava set by the solver + slack shrinking over time). The first fall or
-  lava = game over. Score = Tottlers placed (shown in the top bar). Best score saved.
 - App opens straight on the current level with a big Play button; Next/Retry start the
   next level immediately on the same screen. No level select.
 - Progress in `localStorage` key `tottle.progress.v1` (`completed[]`; older saves with `stars[]`
@@ -98,7 +101,8 @@ Later: Capacitor (iOS/Android) + AdMob.
   `progress` (save/load).
 - `src/levels/` `builder` (tiny DSL `B(tol, left, right, ll, rl)` / `P(S|M|L)`,
   `level(id, draft, queue, lavaGap, tutorial)`),
-  `levels.ts` (20 hand-made levels), `endless.ts` (seeded generator).
+  `levels.ts` (20 hand-made levels), `generated.ts` (level n from its number),
+  `catalog.ts` (`levelDef(n)`, no last level).
 - `src/render/` `stage` (renderer, camera framing, lights, lava), `mobile` (cloud, beams,
   platforms + spring tilt, heat glow), `tottler` (procedural stickman, shared
   geometries), `materials` (palette, toon ramp, canvas textures).

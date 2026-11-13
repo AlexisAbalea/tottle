@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LEVELS } from './levels';
-import { endlessLevel } from './endless';
+import { generatedLevel } from './generated';
+import { levelDef } from './catalog';
 import { solveLevel } from '../core/solver';
 import { depthOf, loneTottlerSafe, validateStructure } from '../core/structure';
 
@@ -34,14 +35,21 @@ describe('hand-made levels', () => {
   });
 });
 
-describe('endless mode', () => {
-  it('generates solvable, deterministic rounds', () => {
-    for (let round = 0; round < 12; round++) {
-      const a = endlessLevel(42, round);
-      const b = endlessLevel(42, round);
-      expect(a).toEqual(b);
+describe('generated levels (after the hand-made ones)', () => {
+  it('level n is always the same, fair and rule-solvable', () => {
+    for (let n = 21; n <= 60; n++) {
+      const a = generatedLevel(n);
+      expect(a).toEqual(generatedLevel(n));
+      expect(a.id).toBe(String(n));
+      validateStructure(a.root);
       expect(loneTottlerSafe(a.root, Math.max(...a.queue))).toBe(true);
       expect(solveLevel(a)).not.toBeNull();
     }
+  });
+
+  it('the catalogue never ends', () => {
+    expect(levelDef(20)).toBe(LEVELS[19]);
+    expect(levelDef(21).id).toBe('21');
+    expect(levelDef(5000).queue.length).toBeGreaterThan(3);
   });
 });

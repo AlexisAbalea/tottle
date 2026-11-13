@@ -80,25 +80,22 @@ test('progress survives a reload', async ({ page }) => {
   await expect(page.getByTestId('start-level')).toHaveText('LEVEL 2');
 });
 
-test('endless mode ends when a Tottler falls into the lava', async ({ page }) => {
+test('after the hand-made levels the game goes on with generated ones', async ({ page }) => {
   await page.evaluate(() => {
     localStorage.setItem(
       'tottle.progress.v1',
-      JSON.stringify({
-        version: 1,
-        level: 3,
-        completed: [true, true, true],
-        perfect: [],
-        endlessBest: 0,
-        muted: true,
-      }),
+      JSON.stringify({ version: 1, level: 20, completed: [], perfect: [], muted: true }),
     );
   });
   await page.reload();
   await page.waitForFunction(() => !!window.__tottle, null, { timeout: 30_000 });
-  await page.locator('[data-act=endless]').click({ force: true });
-  await expect.poll(async () => (await state(page)).mode).toBe('endless');
-  // far to the side of the mobile: only lava below
-  await dragTo(page, 5, 600);
-  await expect(page.getByTestId('score')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId('start-level')).toHaveText('LEVEL 21');
+  await expect(page.locator('[data-act=endless]')).toHaveCount(0);
+  await page.getByTestId('play').click({ force: true });
+  await expect(page.getByTestId('level-pill')).toHaveText('21');
+  // losing shows a plain Game Over, no word under the icon
+  const s = await state(page);
+  await dragTo(page, 5, s.platforms.p0.y);
+  await expect(page.getByTestId('result-title')).toHaveText('Game Over', { timeout: 10_000 });
+  await expect(page.locator('[data-testid^=fail-]')).toHaveText('');
 });

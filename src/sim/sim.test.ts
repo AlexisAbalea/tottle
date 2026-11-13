@@ -3,7 +3,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import type { BeamNode, LevelDef, Weight } from '../core/types';
 import { LEVELS } from '../levels/levels';
 import { Sim } from './sim';
-import { DROP_GAP, botPlay, bestDrop } from './bot';
+import { DROP_GAP, botPlay, bestDrop, physicsLavaGap } from './bot';
+import { levelDef } from '../levels/catalog';
 
 beforeAll(async () => {
   await RAPIER.init();
@@ -133,5 +134,18 @@ describe('levels with real physics', () => {
     it(`level ${lv.id} can be won (bot, real physics)`, { timeout: 60_000 }, () => {
       expect(botPlay(RAPIER, lv)).not.toBeNull();
     });
+  }
+});
+
+describe('generated levels with real physics', () => {
+  for (let n = 21; n <= 30; n++) {
+    it(
+      `level ${n} can be won once its lava distance is set with physics`,
+      { timeout: 60_000 },
+      () => {
+        const def = levelDef(n);
+        expect(botPlay(RAPIER, { ...def, lavaGap: physicsLavaGap(RAPIER, def) })).not.toBeNull();
+      },
+    );
   }
 });

@@ -2,20 +2,18 @@ import * as THREE from 'three';
 import type { LevelDef } from './core/types';
 import {
   loadProgress,
-  recordEndless,
   recordLevel,
   saveProgress,
   storageKeyFor,
   type Progress,
 } from './core/progress';
-import { LEVELS } from './levels/levels';
-import { endlessLevel } from './levels/endless';
+import { HANDMADE_COUNT, levelDef } from './levels/catalog';
 import { Stage } from './render/stage';
 import { CLOUD_TOP, MobileView } from './render/mobile';
 import { TottlerView } from './render/tottler';
 import { toon } from './render/materials';
 import { Sim, type TottlerSpec } from './sim/sim';
-import { DROP_GAP, HOLD_SECONDS, bestDrop } from './sim/bot';
+import { DROP_GAP, HOLD_SECONDS, bestDrop, physicsLavaGap } from './sim/bot';
 import type { Rapier } from './sim/rapier';
 import { Particles } from './fx/particles';
 import { Sound, vibrate } from './fx/audio';
@@ -25,7 +23,6 @@ import { Hud } from './ui/hud';
 const SAVE_KEY = storageKeyFor(location.pathname);
 
 type Phase = 'ready' | 'playing' | 'holding' | 'countdown' | 'result';
-type Mode = 'level' | 'endless';
 
 const SKIES = [
   ['#8fd0ff', '#c9e8ff', '#ffd9b8'],
@@ -90,7 +87,6 @@ export class App {
   private progress: Progress;
   private lastTime = performance.now();
 
-  private mode: Mode = 'level';
   private levelIndex = 0;
   private level!: LevelDef;
   private sim: Sim | null = null;
@@ -110,7 +106,7 @@ export class App {
   private target: THREE.Mesh;
   private queueOrigin = new THREE.Vector3(CURRENT_X, CLOUD_TOP, 0.4);
   private hintCache: { key: string; x: number; y: number } | null = null;
-  private endless = { seed: 1, round: 0, score: 0 };
+  private prepared = new Map<number, LevelDef>();
   /** Bumped on every level load, so stale async sequences stop. */
   private generation = 0;
   timeScale = 1;
@@ -153,24 +149,14 @@ export class App {
       hudRoot,
       {
         onPlay: () => this.onPlay(),
-        onEndless: () => {
-          this.sound.unlock();
-          this.sound.button();
-          this.startEndless();
-        },
         onRetry: () => {
           this.sound.unlock();
           this.sound.button();
-          if (this.mode === 'endless') this.startEndless();
-          else this.loadLevel(this.levelIndex, true);
+          this.loadLevel(this.levelIndex, true);
         },
         onNext: () => {
           this.sound.button();
-          this.loadLevel(Math.min(this.levelIndex + 1, LEVELS.length - 1), true);
-        },
-        onHome: () => {
-          this.sound.button();
-          this.showHome();
+          this.loadLevel(this.levelIndex + 1, true);
         },
         onToggleSound: () => {
           this.sound.unlock();
@@ -196,19 +182,29 @@ export class App {
 
   // ───────────────────────── flow ─────────────────────────
 
+  /** The app always opens on the player's current level, ready to play. */
   private showHome() {
-    if (this.progress.level >= LEVELS.length) {
-      this.mode = 'endless';
-      this.endless = { seed: newSeed(), round: 0, score: 0 };
-      this.setup(endlessLevel(this.endless.seed, 0), 0);
-      this.hud.showStart(`∞ <span style="opacity:.6">★ ${this.progress.endlessBest}</span>`, true);
-    } else {
-      this.mode = 'level';
-      this.levelIndex = this.progress.level;
-      this.setup(LEVELS[this.levelIndex], this.levelIndex);
-      this.hud.showStart(`LEVEL ${this.levelIndex + 1}`, this.progress.level >= 3);
-    }
+    this.levelIndex = this.progress.level;
+    this.setup(this.levelFor(this.levelIndex), this.levelIndex);
+    this.hud.showStart(this.levelIndex + 1);
     this.phase = 'ready';
+  }
+
+  /** Level definition for a 0-based index; generated levels get a physics-safe lava distance. */
+  private levelFor(index: number): LevelDef {
+    const def = levelDef(index + 1);
+    if (index < HANDMADE_COUNT) return def;
+    let ready = this.prepared.get(index);
+    if (!ready) {
+      ready = { ...def, lavaGap: physicsLavaGap(this.R, def) };
+      this.prepared.set(index, ready);
+    }
+    return ready;
+  }
+
+  /** Generated levels need a short physics check: do it ahead of time (e.g. on the win card). */
+  private prepare(index: number) {
+    setTimeout(() => this.levelFor(index), 300);
   }
 
   private onPlay() {
@@ -219,25 +215,14 @@ export class App {
 
   private beginPlaying() {
     this.phase = 'playing';
-    this.hud.showPlaying(
-      this.mode === 'endless' ? `∞ ${this.endless.round + 1}` : `LEVEL ${this.levelIndex + 1}`,
-    );
-    this.hud.setScore(this.mode === 'endless' ? this.endless.score : null);
+    this.hud.showPlaying(this.levelIndex + 1);
   }
 
   loadLevel(index: number, play: boolean) {
-    this.mode = 'level';
     this.levelIndex = index;
-    this.setup(LEVELS[index], index);
+    this.setup(this.levelFor(index), index);
     if (play) this.beginPlaying();
     else this.phase = 'ready';
-  }
-
-  private startEndless() {
-    this.mode = 'endless';
-    this.endless = { seed: newSeed(), round: 0, score: 0 };
-    this.setup(endlessLevel(this.endless.seed, 0), 0);
-    this.beginPlaying();
   }
 
   /** Build the scene and the physics world for a level. */
@@ -426,9 +411,8 @@ export class App {
     vibrate([60, 60, 60]);
     void this.timers.wait(1.2).then(() => {
       if (gen !== this.generation) return;
-      if (this.mode === 'endless') return this.endlessOver();
       this.hud.showResult(
-        { won: false, level: this.levelIndex + 1, reason, perfect: false, isLast: false },
+        { won: false, level: this.levelIndex + 1, reason, perfect: false },
         () => {},
       );
     });
@@ -449,21 +433,8 @@ export class App {
       perfect ? 1.4 : 0.9,
     );
     if (perfect) setTimeout(() => this.sound.perfect(), 350);
-    if (this.mode === 'endless') {
-      this.endless.score += this.level.queue.length;
-      this.hud.setScore(this.endless.score);
-      this.hud.toast(perfect ? 'PERFECT!' : `∞ ${this.endless.round + 2}`);
-      void this.timers.wait(1.4).then(() => {
-        if (gen !== this.generation) return;
-        this.endless.round += 1;
-        const score = this.endless.score;
-        this.setup(endlessLevel(this.endless.seed, this.endless.round), this.endless.round);
-        this.endless.score = score;
-        this.beginPlaying();
-      });
-      return;
-    }
-    this.progress = recordLevel(this.progress, this.levelIndex, perfect, LEVELS.length);
+    this.progress = recordLevel(this.progress, this.levelIndex, perfect, Infinity);
+    this.prepare(this.levelIndex + 1);
     saveProgress(safeStorage(), this.progress, SAVE_KEY);
     void this.timers.wait(0.9).then(() => {
       if (gen !== this.generation) return;
@@ -472,19 +443,10 @@ export class App {
           won: true,
           level: this.levelIndex + 1,
           perfect,
-          isLast: this.levelIndex >= LEVELS.length - 1,
         },
         () => this.sound.star(2),
       );
     });
-  }
-
-  private endlessOver() {
-    const score = this.endless.score;
-    const isBest = score > this.progress.endlessBest;
-    this.progress = recordEndless(this.progress, score);
-    saveProgress(safeStorage(), this.progress, SAVE_KEY);
-    this.hud.showEndlessOver(score, this.progress.endlessBest, isBest);
   }
 
   // ───────────────────────── frame loop ─────────────────────────
@@ -679,13 +641,11 @@ export class App {
     const next = this.queue[0]?.view.root.position;
     return {
       phase: this.phase,
-      mode: this.mode,
-      level: this.mode === 'level' ? this.levelIndex + 1 : this.endless.round + 1,
+      level: this.levelIndex + 1,
       queue: this.queue.map((q) => q.spec.weight),
       canGrab: this.canGrab(),
       next: next ? this.stage.toScreen(next.clone().add(new THREE.Vector3(0, 0.5, 0))) : null,
       platforms,
-      score: this.endless.score,
       progress: this.progress,
     };
   }
@@ -694,10 +654,6 @@ export class App {
   screenOf(x: number, y: number) {
     return this.stage.toScreen(new THREE.Vector3(x, y, 0));
   }
-}
-
-function newSeed() {
-  return Math.floor(Math.random() * 1e9);
 }
 
 function safeStorage(): Storage | null {

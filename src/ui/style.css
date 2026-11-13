@@ -588,3 +588,18 @@ body {
     transform: rotate(360deg);
   }
 }
+
+.side-spacer {
+  width: 68px;
+}
+.level-tag,
+#hud .pill[data-testid='level-pill'] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.level-tag svg,
+#hud .pill[data-testid='level-pill'] svg {
+  width: 26px;
+  height: 26px;
+}
